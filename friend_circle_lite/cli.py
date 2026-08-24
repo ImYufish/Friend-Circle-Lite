@@ -71,6 +71,13 @@ class FriendCircleLiteApplication:
                 f"[爬虫入口] 正在从 {spider_settings.json_url} 获取友链原始数据，每站最多 {spider_settings.article_count} 篇文章"
             )
 
+        # friends_input.rename 的语义是「FCL 字段 -> 外部字段名」，用于把原生 friends.json
+        # 重命名成外部端点约定的键（title/siteurl/imgurl）。它的方向只对 remote 模式（读外部真源）
+        # 有效：from_friend_item 据此把外部键名反查回 FCL 字段。local 模式下，friends.json 本身就是
+        # FCL 原生键（name/link/avatar），若继续套用该映射会把 name 当成 title 去取值 → 全部取空 →
+        # 19 条按空 url 塌成 1 条。故 local 模式传 {}（恒等映射），让原生键名被正确读取。
+        field_mapping = spider_settings.friends_input.rename if spider_settings.source == "remote" else {}
+
         crawl_result = fetch_and_process_data(
             json_url=spider_settings.json_url,
             specific_RSS=self.config.specific_rss,
@@ -79,7 +86,7 @@ class FriendCircleLiteApplication:
             link_check_config=self.config.link_check,
             proxy_settings=self.config.proxy_settings,
             list_key=spider_settings.list_key,
-            field_mapping=spider_settings.friends_input.rename,
+            field_mapping=field_mapping,
             source=spider_settings.source,
             local_friends_file=spider_settings.local_friends_file,
         )

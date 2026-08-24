@@ -30,7 +30,11 @@ spider_settings:
   # 别人的端点可能用 link_list / data 等，配这里即可，FCL 不再硬编码 friends。
   list_key: "friends"
   # 友链字段桥接映射（键 = FCL 内部字段名，值 = 外部端点/博客字段名）。
-  # 读取侧按此从端点取字段；发布 friends.json 时也按同一份映射重命名输出（正反复用，单一真相源）。
+  # 作用范围（单一真相源，正反复用）：
+  #   - 发布：把 FCL 原生 friends.json 按此映射重命名后输出到 page 分支（name->title 等）；
+  #   - remote 读取：外部端点用外部键名，按此映射反查回 FCL 字段（title->name 等）。
+  #   - local 读取：读的是本仓库 FCL 原生 friends.json（name/link/avatar），【不套用此映射】，
+  #     否则 name 会被当成 title 去取值 -> 全取空 -> 19 条按空 url 塌缩成 1 条（见 cli.py）。
   # 【本仓库约定】把 FCL 的全部友链字段都列出来：
   #   - 值留空 ""  → 走默认，即直接用 FCL 字段名本身（name/link/avatar/linkpage/verified）；
   #   - 值填了    → 表示外部端点用的是这个名字，按它取/重命名。
