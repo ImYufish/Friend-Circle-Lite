@@ -37,9 +37,9 @@ spider_settings:
   # 你自己的 friends.json 用 FCL 格式，故默认全留空即可；下面 5 项是 FCL 读取侧的全部字段。
   friends_input:
     rename:
-      name: ""
-      link: ""
-      avatar: ""
+      name: "title"
+      link: "siteurl"
+      avatar: "imgurl"
       linkpage: ""
       verified: ""
     # 示例：对齐博客 my-blog 真源格式时，把对应项填上即可（其余留空）：
