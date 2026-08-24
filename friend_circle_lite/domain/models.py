@@ -30,6 +30,20 @@ def normalize_latency(value: float | int | str | None, default: float = MIN_RECO
     return max(round(latency, 2), default)
 
 
+def pick_display_latency(latency: float | int | None, latency_cn: float | int | None) -> float:
+    """自动选取展示用延迟：取美国视角(latency)与国内视角(latency_cn)中更小的一个。
+
+    语义：对国内源站，latency_cn(广州->国内)通常更小 -> 显示国内真实延迟；
+    对国外源站，latency(美国->海外)通常更小 -> 自动退回显示美国视角(即该站自身响应速度)。
+    两者皆无效(-1/None)时返回 -1。由此无需手动区分各友链源站地域。
+    """
+    cands: list[float] = []
+    for v in (latency, latency_cn):
+        if isinstance(v, (int, float)) and v > 0:
+            cands.append(float(v))
+    return min(cands) if cands else -1
+
+
 def normalize_homepage_url(url: str) -> str:
     """规范化站点主页 URL，用于缓存匹配和持久化。"""
     value = str(url or "").strip()
@@ -65,19 +79,44 @@ class Website:
     url: str
     avatar: str = ""
     linkpage: str = ""
+    verified: bool = False
 
     def __post_init__(self) -> None:
         self.url = normalize_homepage_url(self.url)
 
     @classmethod
-    def from_friend_item(cls, raw_friend: list | tuple | dict) -> "Website":
-        """Create a website from common friend link structures."""
+    def from_friend_item(cls, raw_friend: list | tuple | dict, mapping: dict[str, str] | None = None) -> "Website":
+        """Create a website from common friend link structures.
+
+        字典结构兼容两种来源：
+        - FCL 原生：name / link(或 url) / avatar
+        - 博客(my-blog)真源：title / siteurl / imgurl（内置别名兜底）
+        - 外部端点自定义字段：通过 mapping（键=FCL字段，值=外部字段名）显式桥接，
+          例如 {name: blog_title, link: site_url} 表示外部用 blog_title/site_url。
+          配置了 mapping 时优先用映射字段，未配置 mapping 才退回内置别名。
+        """
         if isinstance(raw_friend, dict):
+            mp = mapping or {}
+
+            def _pick(fcl_field: str, *builtin_aliases: str) -> object:
+                # 优先用 mapping 指定的外部字段名；未配置 mapping 时退回内置别名兜底
+                # （空串/None 均视为缺失，与原 name/title 的 `or` 行为一致）
+                ext_key = mp.get(fcl_field, fcl_field)
+                val = raw_friend.get(ext_key)
+                if not mp and not val:
+                    for alias in builtin_aliases:
+                        v = raw_friend.get(alias)
+                        if v:
+                            val = v
+                            break
+                return val
+
             return cls(
-                name=str(raw_friend.get("name", "")).strip(),
-                url=normalize_homepage_url(raw_friend.get("link") or raw_friend.get("url") or ""),
-                avatar=str(raw_friend.get("avatar", "")).strip(),
-                linkpage=str(raw_friend.get("linkpage", "")).strip(),
+                name=str(_pick("name", "title") or "").strip(),
+                url=normalize_homepage_url(_pick("link", "siteurl", "url") or ""),
+                avatar=str(_pick("avatar", "imgurl") or "").strip(),
+                linkpage=str(_pick("linkpage") or "").strip(),
+                verified=bool(_pick("verified")),
             )
 
         name = raw_friend[0]
@@ -88,7 +127,7 @@ class Website:
         else:
             linkpage = ""
             avatar = raw_friend[2] if len(raw_friend) > 2 else ""
-        return cls(name=str(name).strip(), url=normalize_homepage_url(url), avatar=str(avatar or "").strip(), linkpage=str(linkpage or "").strip())
+        return cls(name=str(name).strip(), url=normalize_homepage_url(url), avatar=str(avatar or "").strip(), linkpage=str(linkpage or "").strip(), verified=False)
 
     def to_error_payload(self) -> list[str]:
         """Return the legacy structure used by `errors.json`."""
@@ -142,10 +181,13 @@ class LinkCheckRecord:
     direct: LinkMethodStatus = field(default_factory=LinkMethodStatus)
     proxy: LinkMethodStatus = field(default_factory=LinkMethodStatus)
     api: LinkMethodStatus = field(default_factory=LinkMethodStatus)
+    verified: bool = False
+    latency_cn: float = -1
+    latency_display: float = -1
 
     @classmethod
     def unchecked(cls, website: Website, checked_at: str = "") -> "LinkCheckRecord":
-        return cls(name=website.name, url=website.url, avatar=website.avatar, linkpage=website.linkpage, checked_at=checked_at)
+        return cls(name=website.name, url=website.url, avatar=website.avatar, linkpage=website.linkpage, checked_at=checked_at, verified=website.verified)
 
     def __post_init__(self) -> None:
         self.url = normalize_homepage_url(self.url)
@@ -170,6 +212,9 @@ class LinkCheckRecord:
             "unreachable_days": self.unreachable_days,
             "rss_unavailable_since": self.rss_unavailable_since,
             "rss_unavailable_days": self.rss_unavailable_days,
+            "verified": self.verified,
+            "latency_cn": self.latency_cn,
+            "latency_display": self.latency_display,
             "methods": {
                 "direct": self.direct.to_dict(),
                 "proxy": self.proxy.to_dict(),
@@ -201,6 +246,11 @@ class LinkCheckRecord:
             "reachable": self.reachable,
             "crawlable": self.crawl_allowed,
             "latency": latency,
+            # latency_cn / latency_display 在未配置国内探针时为 -1（未知），直接透传 -1，
+            # 不要交给 normalize_latency（会把 -1 转成 0.01 这类伪正常值）。
+            "latency_cn": normalize_latency(self.latency_cn) if (self.reachable and self.latency_cn > 0) else -1,
+            "latency_display": normalize_latency(self.latency_display) if (self.reachable and self.latency_display > 0) else -1,
+            "verified": self.verified,
             "unreachable_days": self.unreachable_days,
             "unreachable_since": self.unreachable_since if not self.reachable else "",
             "has_backlink": self.has_author_link if self.backlink_checked else None,

@@ -24,11 +24,11 @@ from friend_circle_lite.utils.json import write_json
 
 
 class RefactorContractsTest(unittest.TestCase):
-    def test_github_action_schedule_uses_22_minute_offset(self):
+    def test_github_action_schedule_uses_00_minute_offset(self):
         workflow = Path(".github/workflows/friend_circle_lite.yml").read_text(encoding="utf-8")
 
-        self.assertIn('cron: "22 */4 * * *"', workflow)
-        self.assertNotIn('cron: "0 */4 * * *"', workflow)
+        self.assertIn('cron: "00 */4 * * *"', workflow)
+        self.assertNotIn('cron: "22 */4 * * *"', workflow)
 
     def test_github_actions_opt_into_node24_runtime(self):
         workflow_paths = [
@@ -48,7 +48,7 @@ class RefactorContractsTest(unittest.TestCase):
         self.assertIn('published_tree=$(git rev-parse "origin/${PAGE_BRANCH}^{tree}")', workflow)
         self.assertIn("generated_tree=$(git write-tree)", workflow)
         self.assertIn('[ "$generated_tree" = "$published_tree" ]', workflow)
-        self.assertIn("No static asset changes; skipping page branch update.", workflow)
+        self.assertIn("静态产物无变化，跳过 page 分支更新。", workflow)
 
     def test_static_index_is_standalone_dashboard_with_view_switch(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
@@ -345,7 +345,10 @@ class RefactorContractsTest(unittest.TestCase):
             rss_unavailable_since="2026-06-17 08:00:00",
         )
 
-        with patch("friend_circle_lite.link_checker.service.datetime") as fake_datetime:
+        # effective_max_age_hours 实际读时钟的是 domain.models.calculate_elapsed_days，
+        # 它用自己模块的 datetime.now()，需一并 mock，否则时钟不传导、算出错误窗口。
+        with patch("friend_circle_lite.link_checker.service.datetime") as fake_datetime, \
+                patch("friend_circle_lite.domain.models.datetime", fake_datetime):
             fake_datetime.now.return_value = datetime(2026, 6, 27, 8, 0, 0)
             fake_datetime.strptime.side_effect = datetime.strptime
             reused = service._can_reuse_cached_record(cached, Website(name="NoRSS", url="https://norss.example/"))
@@ -885,6 +888,9 @@ class RefactorContractsTest(unittest.TestCase):
             "reachable": True,
             "crawlable": True,
             "latency": 1.2,
+            "latency_cn": -1,
+            "latency_display": -1,
+            "verified": False,
             "unreachable_days": None,
             "unreachable_since": "",
             "has_backlink": True,
@@ -907,6 +913,27 @@ class RefactorContractsTest(unittest.TestCase):
         website = Website.from_friend_item(["PathSite", "https://example.com/blog", "avatar.png"])
 
         self.assertEqual(website.url, "https://example.com/blog/")
+
+    def test_from_friend_item_accepts_blog_field_aliases(self):
+        # 博客(my-blog)真源格式：title/siteurl/imgurl，无 FCL 原生字段
+        blog_style = Website.from_friend_item(
+            {"title": "羡鱼", "siteurl": "https://x1anyu.cn", "imgurl": "https://x1anyu.cn/avatar.png", "desc": "blog"}
+        )
+        self.assertEqual(blog_style.name, "羡鱼")
+        self.assertEqual(blog_style.url, "https://x1anyu.cn/")
+        self.assertEqual(blog_style.avatar, "https://x1anyu.cn/avatar.png")
+
+        # 双写格式：原生字段优先，别名仅兜底
+        both = Website.from_friend_item(
+            {"name": "Native", "link": "https://native.example/", "avatar": "a.png", "title": "Ignored", "siteurl": "https://ignored.example", "imgurl": "i.png"}
+        )
+        self.assertEqual(both.name, "Native")
+        self.assertEqual(both.url, "https://native.example/")
+        self.assertEqual(both.avatar, "a.png")
+
+        # 原生字段为空串时也应回落到别名
+        fallback = Website.from_friend_item({"name": "", "title": "Fallback", "link": ""})
+        self.assertEqual(fallback.name, "Fallback")
 
     def test_load_websites_deduplicates_by_normalized_homepage_url(self):
         service = FriendCircleCrawlService(json_url="https://example.com/friends.json", count=1)

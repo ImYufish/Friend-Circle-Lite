@@ -111,6 +111,8 @@ class FriendCircleCrawlService:
         cache_file: str | None = None,
         link_check_config: LinkCheckConfig | None = None,
         proxy_settings: ProxySettings | None = None,
+        list_key: str = "friends",
+        field_mapping: dict[str, str] | None = None,
     ):
         self.json_url = json_url
         self.count = count
@@ -119,6 +121,9 @@ class FriendCircleCrawlService:
         self.link_check_config = link_check_config or LinkCheckConfig()
         self.proxy_settings = proxy_settings or ProxySettings()
         self.link_check_store = LinkCheckStore(cache_file)
+        # 外部端点顶层键（默认 friends）与字段桥接映射（键=FCL字段，值=外部字段名）
+        self.list_key = list_key or "friends"
+        self.field_mapping = field_mapping or {}
 
     def run(self) -> tuple[dict, list[list[str]]] | None:
         """Fetch website list, crawl all websites, and build public outputs."""
@@ -201,6 +206,7 @@ class FriendCircleCrawlService:
             proxy_settings=self.proxy_settings,
             store=self.link_check_store,
             feed_records=feed_records,
+            eo_ping_url=self.link_check_config.eo_ping_url,
         )
         records = service.check_websites(websites)
         if service.feed_updates:
@@ -291,10 +297,18 @@ class FriendCircleCrawlService:
             logging.error(f"无法获取链接：{self.json_url} ：{exc}", exc_info=True)
             return None
 
+        # 外部端点可能用非 friends 的顶层键（link_list / data 等），按 list_key 取数
+        list_key = self.list_key or "friends"
+        raw_list = friends_data.get(list_key, []) or []
+        if not raw_list and list_key != "friends":
+            logging.warning(f"端点顶层键 {list_key!r} 无数据，回退尝试 friends")
+            raw_list = friends_data.get("friends", []) or []
+        # field_mapping：{FCL字段: 外部字段} 正映射，读取时直接套用（无则退回内置别名）
+        field_mapping = self.field_mapping or {}
         website_map: dict[str, Website] = {}
-        for friend in friends_data.get("friends", []):
+        for friend in raw_list:
             try:
-                website = Website.from_friend_item(friend)
+                website = Website.from_friend_item(friend, field_mapping)
                 website_map[website.url] = website
             except Exception:
                 logging.warning(f"发现格式异常的友链数据，已跳过: {friend!r}")

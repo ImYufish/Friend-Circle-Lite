@@ -58,6 +58,10 @@ class FriendCircleLiteApplication:
 
         logging.info("[爬虫入口] 爬虫已启用")
         logging.info(
+            f"[爬虫入口] 友链真源模式：{spider_settings.source}（"
+            f"{'FCL 仓库 friends.json' if spider_settings.source != 'remote' else '外部博客友链端点，纯巡检展示'}）"
+        )
+        logging.info(
             f"[爬虫入口] 正在从 {spider_settings.json_url} 获取友链原始数据，每站最多 {spider_settings.article_count} 篇文章"
         )
 
@@ -68,6 +72,8 @@ class FriendCircleLiteApplication:
             cache_file=self.config.runtime_paths.cache_file,
             link_check_config=self.config.link_check,
             proxy_settings=self.config.proxy_settings,
+            list_key=spider_settings.list_key,
+            field_mapping=spider_settings.friends_input.rename,
         )
         if crawl_result is None:
             logging.error("[爬虫入口] 抓取流程失败，未生成任何输出文件")

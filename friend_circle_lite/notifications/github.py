@@ -5,10 +5,10 @@ from friend_circle_lite import HEADERS_JSON
 
 def extract_emails_from_issues(api_url):
     """
-    从GitHub issues API中提取以[e-mail]开头的title中的邮箱地址。
+    从 GitHub issues API 中提取 title 以 [邮箱订阅] 开头的 issue 中的邮箱地址。
 
     参数：
-    api_url (str): GitHub issues API的URL。
+    api_url (str): GitHub issues API 的 URL。
 
     返回：
     dict: 包含所有提取的邮箱地址的字典。

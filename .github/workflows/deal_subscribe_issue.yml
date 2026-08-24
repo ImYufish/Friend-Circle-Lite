@@ -1,4 +1,4 @@
-name: Handle Email Issues
+name: 处理邮箱订阅 Issue
 
 on:
   issues:
@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Add subscribed label
+    - name: 打上订阅标签
       uses: actions-cool/issues-helper@v3
       with:
         actions: 'add-labels'
@@ -21,7 +21,7 @@ jobs:
         issue-number: ${{ github.event.issue.number }}
         labels: 'subscribed'
 
-    - name: Comment on issue
+    - name: 在 Issue 下评论
       uses: actions-cool/issues-helper@v3
       with:
         actions: 'create-comment'
@@ -31,7 +31,7 @@ jobs:
           🤩你好呀！ ${{ github.event.issue.user.login }}！你已经成功通过邮件订阅了本站啦！若有新文章将通过邮箱推送给你！谢谢你的订阅！
           😥如果您实在想要关闭订阅，在右下角直接删除这个issue就好！咕咕咕咕咕咕咕！感谢你的订阅！
 
-    - name: Close issue
+    - name: 关闭 Issue
       uses: actions-cool/issues-helper@v3
       with:
         actions: 'close-issue'

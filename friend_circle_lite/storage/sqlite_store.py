@@ -329,6 +329,7 @@ class LinkCheckStore:
                     """
                     SELECT url, name, avatar, linkpage, checked_at, reachable, crawl_allowed,
                            best_method, best_latency, fail_count, backlink_checked, has_author_link,
+                           verified, latency_cn, latency_display,
                            rss_crawl_reason, last_post_published, last_post_days_ago,
                            unreachable_since, rss_unavailable_since,
                            direct_success, direct_status_code, direct_latency,
@@ -347,6 +348,7 @@ class LinkCheckStore:
             (
                 url, name, avatar, linkpage, checked_at, reachable, crawl_allowed,
                 best_method, best_latency, _legacy_fail_count, backlink_checked, has_author_link,
+                verified, latency_cn, latency_display,
                 rss_crawl_reason, last_post_published, last_post_days_ago,
                 unreachable_since, rss_unavailable_since,
                 direct_success, direct_status_code, direct_latency,
@@ -368,6 +370,9 @@ class LinkCheckStore:
                 best_latency=best_latency if best_latency is not None else -1,
                 backlink_checked=bool(backlink_checked),
                 has_author_link=bool(has_author_link),
+                verified=bool(verified),
+                latency_cn=latency_cn if latency_cn is not None else -1,
+                latency_display=latency_display if latency_display is not None else -1,
                 rss_crawl_reason=rss_crawl_reason or "blocked_unreachable",
                 last_post_published=last_post_published or "",
                 last_post_days_ago=last_post_days_ago,
@@ -392,12 +397,13 @@ class LinkCheckStore:
                     INSERT INTO link_check_state(
                         url, name, avatar, linkpage, checked_at, reachable, crawl_allowed,
                         best_method, best_latency, fail_count, backlink_checked, has_author_link,
+                        verified, latency_cn, latency_display,
                         rss_crawl_reason, last_post_published, last_post_days_ago,
                         unreachable_since, rss_unavailable_since,
                         direct_success, direct_status_code, direct_latency,
                         proxy_success, proxy_status_code, proxy_latency, api_success,
                         api_status_code, api_latency
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     ON CONFLICT(url) DO UPDATE SET
                         name = excluded.name,
                         avatar = excluded.avatar,
@@ -410,6 +416,9 @@ class LinkCheckStore:
                         fail_count = excluded.fail_count,
                         backlink_checked = excluded.backlink_checked,
                         has_author_link = excluded.has_author_link,
+                        verified = excluded.verified,
+                        latency_cn = excluded.latency_cn,
+                        latency_display = excluded.latency_display,
                         rss_crawl_reason = excluded.rss_crawl_reason,
                         last_post_published = excluded.last_post_published,
                         last_post_days_ago = excluded.last_post_days_ago,
@@ -460,6 +469,9 @@ class LinkCheckStore:
             0,
             int(record.backlink_checked),
             int(record.has_author_link),
+            int(record.verified),
+            record.latency_cn,
+            record.latency_display,
             record.rss_crawl_reason,
             record.last_post_published,
             record.last_post_days_ago,
@@ -519,3 +531,9 @@ class LinkCheckStore:
             connection.execute("ALTER TABLE link_check_state ADD COLUMN unreachable_since TEXT DEFAULT ''")
         if "rss_unavailable_since" not in columns:
             connection.execute("ALTER TABLE link_check_state ADD COLUMN rss_unavailable_since TEXT DEFAULT ''")
+        if "verified" not in columns:
+            connection.execute("ALTER TABLE link_check_state ADD COLUMN verified INTEGER NOT NULL DEFAULT 0")
+        if "latency_cn" not in columns:
+            connection.execute("ALTER TABLE link_check_state ADD COLUMN latency_cn REAL DEFAULT -1")
+        if "latency_display" not in columns:
+            connection.execute("ALTER TABLE link_check_state ADD COLUMN latency_display REAL DEFAULT -1")

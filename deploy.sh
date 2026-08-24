@@ -7,7 +7,7 @@ cd "$SCRIPT_DIR" || exit 1
 python3 run.py
 
 mkdir -p pages
-cp -r main static all.json link.json errors.json pages/
+cp -r main static all.json link.json errors.json friends.json pages/
 
 echo "===================================="
 echo "静态文件已生成到 pages/ 目录"

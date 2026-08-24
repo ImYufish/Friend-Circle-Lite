@@ -1,0 +1,165 @@
+# ============================================================
+# CNB (cnb.cool) 流水线 —— 与 .github/workflows 二选一使用
+#
+# 功能对齐 GitHub 版主链路：定时巡检 → 截图 → 发布 page 分支。
+# 差异说明见 docs/deploy.md：
+#   - 单流水线顺序执行，stage 共享工作区与容器环境，无需跨 job 传 artifact
+#   - Issue 自助申请已移植（$ 级 issue.open/reopen/comment 触发）；
+#     CNB 议题无表单模板，正文按「字段名：值」逐行填写
+#   - push 触发用 ifModify 过滤：仅友链真源 friends.json 变化时自动巡检
+#   - 手动触发暂不支持 target_link 定点截图参数
+#
+# 密钥配置（对应 GitHub 版的 Secrets）：CNB 没有仓库级 Secrets 界面，
+# 官方做法是建「密钥仓库」存放密钥文件，流水线用 imports 引入，
+# 文件里的键值对自动注入为环境变量。
+# 本仓库引用密钥仓库 x1anyu/key 的 fcl.yml（IMG_AUTH_CODE 等）。
+# ============================================================
+
+# ---- 公共流水线定义 ----
+# 锚点定义在单个流水线对象上，触发器处用标准 YAML 合并键（<<）复用；
+# 需要额外触发条件的入口（如 push 只盯 friends.json）就地叠加字段即可。
+.patrol-pipeline: &patrol_pipeline
+  name: 友链巡检与截图
+  runner:
+    cpus: 4
+  # 统一基础镜像：整条流水线共用同一容器环境，
+  # 前面 stage 装的 pip 包在后面 stage 直接可用
+  docker:
+    image: python:3.12
+  # 密钥仓库：fcl.yml 的键值对注入为整条流水线的环境变量（如 IMG_AUTH_CODE 图床认证）
+  imports:
+    - https://cnb.cool/x1anyu/key/-/blob/main/fcl.yml
+  stages:
+    # ---------- 阶段一：依赖与环境 ----------
+    - name: 安装检测依赖
+      script: |
+        pip install -r requirements.txt
+        playwright install --with-deps chromium
+
+    - name: 恢复上一轮缓存（cache 分支）
+      script: bash scripts/sync_cache.sh pull
+
+    - name: 拉取上一轮 link.json 作为基线
+      script: |
+        if git fetch origin page 2>/dev/null; then
+          git show "origin/page:link.json" > link.baseline.json 2>/dev/null || echo "page 分支无 link.json，视为首轮"
+        else
+          echo "无 page 分支，视为首轮"
+        fi
+
+    # ---------- 阶段二：检测主流程 ----------
+    - name: 抓取 RSS 文章与友链检测
+      script: |
+        python run.py
+
+    - name: 后处理（截图回填 / 地域诊断 / 状态告警）
+      script: |
+        python -m friend_circle_lite.postprocess all
+
+    - name: 友链 Issue 巡检回评
+      # 可达性/反链异常 → 对应申请议题回评并打 待更新；恢复则撤标签
+      script: python scripts/cnb_issue_report.py
+
+    - name: 回写缓存到 cache 分支
+      # 与 GitHub 版一致：检测一结束就回写，后续截图失败也不丢本轮缓存
+      script: bash scripts/sync_cache.sh push
+
+    # ---------- 阶段三：发布 ----------
+    - name: 组装并发布 page 分支
+      script: |
+        git config user.name 'cnb-bot'
+        git config user.email 'cnb-bot@cnb.cool'
+        origin_url=$(git remote get-url origin)
+        mkdir pages
+        cp -r main ./static/edgeone.json ./static/_headers ./static/index.html ./static/readme.md ./static/favicon.ico ./static/bg-light.webp ./static/bg-dark.webp all.json link.json errors.json pages/
+        python -m friend_circle_lite.friends_publish --src friends.json --dst pages/friends.json
+        published_tree=""
+        if git fetch origin page 2>/dev/null; then
+          published_tree=$(git rev-parse "origin/page^{tree}")
+        fi
+        cd pages
+        git init
+        git add .
+        generated_tree=$(git write-tree)
+        if [ -n "$published_tree" ] && [ "$generated_tree" = "$published_tree" ]; then
+          echo "静态产物无变化，跳过 page 分支更新。"
+          exit 0
+        fi
+        git commit -m "⏱️ $(date +"%Y年%m月%d日-%H时%M分") CNB 定时更新"
+        git push --force "$origin_url" "HEAD:refs/heads/page"
+
+    # ---------- 阶段四：截图 ----------
+    - name: 安装浏览器并执行截图（增量）
+      script: |
+        apt-get update -qq && apt-get install -y -qq chromium chromium-driver fonts-noto-cjk fonts-wqy-zenhei
+        pip install requests selenium webdriver-manager
+        export CHROME_BIN=/usr/bin/chromium
+        export CHROMEDRIVER_PATH=/usr/bin/chromedriver
+        python -m friend_circle_lite.screenshots.runner
+
+    - name: 将带截图的 link.json 发布到 page 分支
+      script: |
+        git config user.name 'cnb-bot'
+        git config user.email 'cnb-bot@cnb.cool'
+        origin_url=$(git remote get-url origin)
+        if git fetch origin page 2>/dev/null; then
+          git clone --depth 1 --branch page "$origin_url" publish_tmp
+        else
+          git clone "$origin_url" publish_tmp
+          cd publish_tmp && git checkout --orphan page -q && git rm -rqf . && cd ..
+        fi
+        cp ./link.json publish_tmp/link.json
+        cd publish_tmp
+        git add link.json
+        if git diff --cached --quiet; then
+          echo "link.json 无变化，跳过提交"
+        else
+          git commit -m "📸 $(date +"%Y年%m月%d日-%H时%M分") 更新友链截图"
+          git push origin page
+        fi
+
+    # ---------- 可选：直接发布到 EdgeOne Pages ----------
+    # 前提: EO Pages 控制台创建 API Token 配到环境变量 EDGEONE_API_TOKEN，
+    #       并提前用「直接上传」方式建好同名项目（首次部署会自动创建）。
+    # - name: 发布静态站点到 EdgeOne Pages
+    #   image: node:22
+    #   script: npx edgeone pages deploy ./pages -n 你的项目名 -t $EDGEONE_API_TOKEN
+
+main:
+  # 每 4 小时定时巡检（系统时区 Asia/Shanghai）
+  "crontab: 22 */4 * * *":
+    - *patrol_pipeline
+  # 对齐 GitHub 版 paths 过滤：仅友链真源 friends.json 变化时自动巡检
+  push:
+    - <<: *patrol_pipeline
+      ifModify:
+        - friends.json
+  # 页面手动触发按钮
+  web_trigger:
+    - *patrol_pipeline
+
+# ---- 友链申请自动验证（Issue 事件需挂 $ 级） ----
+# 议题标题以 [友链申请] 开头才会处理；正文按「字段名：值」逐行填写，
+# 兼容 GitHub 表单渲染格式。通过验证后写 friends.json 推回 main，
+# push 命中上面的 ifModify 过滤自动联动一轮巡检。
+.apply-pipeline: &apply_pipeline
+  name: 友链申请自动验证
+  docker:
+    image: python:3.12
+  imports:
+    - https://cnb.cool/x1anyu/key/-/blob/main/fcl.yml
+  stages:
+    - name: 安装验证依赖
+      script: |
+        pip install -r requirements.txt
+        playwright install --with-deps chromium
+    - name: 解析申请并验证反链（通过则写入 friends.json）
+      script: python scripts/apply_friend_cnb.py
+
+$:
+  issue.open:
+    - *apply_pipeline
+  issue.reopen:
+    - *apply_pipeline
+  issue.comment:
+    - *apply_pipeline

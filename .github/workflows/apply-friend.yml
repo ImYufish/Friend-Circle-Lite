@@ -1,0 +1,318 @@
+name: 新增友链自动验证
+
+on:
+  issues:
+    types: [opened, reopened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  issues: write
+  contents: write
+  actions: write # 验证通过写入 friends.json 后，显式触发主检测工作流立即生效
+
+jobs:
+  apply:
+    name: 解析 / Playwright 验证 / 写入友链
+    runs-on: ubuntu-latest
+    env:
+      ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: true
+    # 触发条件（用标题前缀判断，避免「重验被跳过」）：
+    #  - issues opened/reopened 且标题前缀 [友链申请]
+    #  - issue_comment created 且评论者不是机器人、标题前缀 [友链申请]
+    # 「是否失败态(待更新)」的闸门放在解析步骤用 API 可靠读取
+    if: >-
+      (github.event_name == 'issues' &&
+        startsWith(github.event.issue.title, '[友链申请]')) ||
+      (github.event_name == 'issue_comment' &&
+        github.event.comment.user.login != 'github-actions[bot]' &&
+        startsWith(github.event.issue.title, '[友链申请]'))
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 设置节点
+        uses: actions/setup-node@v5
+        with:
+          node-version: '20'
+
+      - name: 缓存 Playwright 浏览器
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          # 锁定 playwright 版本，浏览器二进制随版本缓存，命中即跳过下载
+          key: playwright-browsers-${{ runner.os }}-1.62.1
+
+      - name: 安装 Playwright + Chromium
+        run: |
+          npm init -y >/dev/null 2>&1
+          npm i playwright@1.62.1
+          npx playwright install --with-deps chromium
+
+      - name: 解析 Issue
+        id: parse
+        uses: actions/github-script@v7
+        env:
+          AUTHOR_URL: ${{ secrets.AUTHOR_URL }}
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const eventName = github.event_name;
+            const isReverify = (eventName === 'issue_comment');
+
+            const issue = (eventName === 'issue_comment') ? github.event.issue : context.payload.issue;
+            const body = issue.body || "";
+
+            // 读取 conf.yaml 的 spider_settings.source：local=真源在 FCL 仓库，remote=真源在外部博客端点
+            let friendsSource = 'local';
+            try {
+              const conf = fs.readFileSync('conf.yaml', 'utf8');
+              const m = conf.match(/^\s*source:\s*["']?([a-z]+)/im);
+              if (m) friendsSource = (m[1] || 'local').toLowerCase();
+            } catch (e) {
+              core.warning('读取 conf.yaml source 失败，按 local 处理: ' + e.message);
+            }
+            core.setOutput('friendsSource', friendsSource);
+
+            // remote 模式：真源在外部博客端点，FCL 不维护本地 friends.json，
+            // 自助申请（Issue）整套关闭——直接告知并关闭议题，不做任何验证/写回。
+            if (friendsSource === 'remote') {
+              try {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number,
+                  body: "⛔ 本仓库 **友链自助申请功能已关闭**（spider_settings.source=remote，友链真源在外部博客友链端点）。\n\n"
+                    + "如需添加友链，请直接在你的博客仓库本地修改友链配置文件并提交（参考部署文档「在博客本地仓库申请友链」一节），"
+                    + "FCL 会自动从博客端点读取并巡检。",
+                });
+                await github.rest.issues.update({ owner, repo, issue_number, state: "closed" });
+              } catch (err) {
+                core.warning(`Issue ${issue_number} 已不存在，跳过：${err.message}`);
+              }
+              core.setOutput('shouldVerify', 'false');
+              return;
+            }
+
+            // 重验闸门：仅「失败态(Issue 带 待更新 标签)」的评论才重验；
+            // 已通过/已关闭 Issue 的评论直接忽略（用 API 读取 labels，比 if 里的 labels.*.name 表达式可靠）
+            if (isReverify) {
+              const lbls = (issue.labels || []).map((l) => l.name);
+              if (!lbls.includes('待更新')) {
+                core.setOutput('shouldVerify', 'false');
+                return;
+              }
+            }
+
+            // 清洗用户粘贴的 URL：去掉 markdown 链接语法、首尾空白、尾部标点/右括号
+            function cleanUrl(raw) {
+              const s = (raw || '').trim();
+              const md = s.match(/\[[^\]]*\]\(\s*(https?:\/\/[^\s)]+)\s*\)/i);
+              if (md) return md[1];
+              const m = s.match(/https?:\/\/[^\s)]+/i);
+              if (m) return m[0];
+              return s;
+            }
+
+            // 从 Issue Forms 渲染后的 body 中按中文标签提取字段
+            function field(label) {
+              const re = new RegExp("###\\s*" + label + "\\s*\\n+([\\s\\S]*?)(?=\\n###|$)");
+              const m = body.match(re);
+              return m ? m[1].trim() : "";
+            }
+
+            const title   = field("网站名称").replace(/\s+/g, " ").trim();
+            const siteurl = cleanUrl(field("网站链接"));
+            const linkpage = cleanUrl(field("友链页面 URL"));
+            const desc    = field("网站描述").trim();
+            const imgurl  = field("网站头像 URL").trim();
+
+            const missing = [];
+            if (!title)   missing.push("网站名称");
+            if (!siteurl) missing.push("网站链接");
+            if (!desc)    missing.push("网站描述");
+            if (!imgurl)  missing.push("网站头像 URL");
+
+            if (missing.length > 0) {
+              try {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number,
+                  body: "⚠️ 申请信息不完整，缺少：" + missing.join("、") + "。请补充后在本 Issue 下回复以重新验证（Issue 保持开放）。",
+                });
+                await github.rest.issues.addLabels({ owner, repo, issue_number, labels: ["待更新"] });
+              } catch(err) {
+                core.warning(`Issue ${issue_number} 不存在，跳过评论打标签: ${err.message}`);
+              }
+              core.setOutput('shouldVerify', 'false');
+              return;
+            }
+
+            // 规范化 siteurl：补 https:// 前缀（若缺失）
+            let finalSiteurl = siteurl;
+            if (!/^https?:\/\//i.test(finalSiteurl)) {
+              finalSiteurl = "https://" + finalSiteurl.replace(/^\/+/, "");
+            }
+
+            // 读取现有清单做去重（仅首次申请模式；重验模式跳过，因为友链可能已存在）
+            // （remote 模式已在上方提前关闭申请并返回，此处只会走 local 路径）
+            let friends = [];
+            try {
+              const fd = await github.rest.repos.getContent({ owner, repo, path: "friends.json", ref: "main" });
+              friends = JSON.parse(Buffer.from(fd.data.content, "base64").toString("utf8")).friends || [];
+            } catch (e) {
+              core.warning("读取 friends.json 失败: " + e.message);
+            }
+
+            const norm = (u) => (u || "").trim().toLowerCase().replace(/^https?:\/\//i, "").replace(/\/$/, "");
+            const exists = friends.some((f) => norm(f.link) === norm(finalSiteurl));
+
+            if (!isReverify && exists) {
+              try {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number,
+                  body: "ℹ️ 友链 **" + title + "**（" + finalSiteurl + "）已存在，无需重复添加。",
+                });
+                await github.rest.issues.update({ owner, repo, issue_number, state: "closed" });
+              } catch(err) {
+                core.warning(`Issue ${issue_number} 不存在，跳过评论关闭issue: ${err.message}`);
+              }
+              core.setOutput('shouldVerify', 'false');
+              return;
+            }
+
+            const authorUrl = process.env.AUTHOR_URL || "https://x1anyu.cn";
+            fs.writeFileSync('verify_input.json', JSON.stringify({
+              siteurl: finalSiteurl,
+              linkpage: linkpage,
+              authorUrl: authorUrl,
+              issue_number: issue_number,
+              title: title,
+              desc: desc,
+              imgurl: imgurl,
+              mode: isReverify ? 'reverify' : 'apply',
+            }, null, 2));
+            core.setOutput('shouldVerify', 'true');
+
+      - name: Playwright 验证（可访问性 + 反链）
+        id: verify
+        if: steps.parse.outputs.shouldVerify == 'true'
+        run: node .github/scripts/verify-friend.mjs
+        env:
+          VERIFY_INPUT: verify_input.json
+          VERIFY_RESULT: verify_result.json
+
+      - name: 应用结果（写入 / 拒收）
+        if: steps.parse.outputs.shouldVerify == 'true'
+        uses: actions/github-script@v7
+        env:
+          FRIENDS_SOURCE: ${{ steps.parse.outputs.friendsSource }}
+        with:
+          script: |
+            const fs = require('fs');
+            const { owner, repo } = context.repo;
+            const issue_number = context.issue.number;
+            const input = JSON.parse(fs.readFileSync('verify_input.json', 'utf8'));
+            const result = JSON.parse(fs.readFileSync('verify_result.json', 'utf8'));
+            const finalSiteurl = input.siteurl;
+            const linkpage = input.linkpage;
+            const title = input.title;
+            const desc = input.desc;
+            const imgurl = input.imgurl;
+            const issueId = input.issue_number;
+
+            if (!result.pass) {
+              let reason = result.reason || "验证未通过";
+              if (result.reachable === false) reason = "站点不可访问（" + (result.status ? "HTTP " + result.status : "无法连接") + "）";
+              else if (result.hasReciprocal === false) reason = "未检测到指向本站的真实友链";
+              try {
+                await github.rest.issues.createComment({
+                  owner, repo, issue_number,
+                  body: "⚠️ **验证未通过**：" + reason + "。\n\n请修复后在本 Issue 下回复任意内容即可重新验证（Issue 保持开放）。",
+                });
+                await github.rest.issues.addLabels({ owner, repo, issue_number, labels: ["待更新"] });
+              } catch(err) {
+                core.warning(`Issue ${issue_number} 已不存在，跳过写评论打标签：${err.message}`);
+              }
+              return;
+            }
+
+            // ---- 验证通过（仅 local 模式；remote 模式已在解析步骤提前关闭申请） ----
+
+            // --------------------------
+            // 验证通过：写入 friends.json
+            // 格式：FCL 原生字段（name/link/avatar/linkpage/verified/rss/desc/tags/enabled/weight + issue_id）
+            // 注意：对外发布（fc.yufish.cn/friends.json）的字段命名由 conf.yaml 的
+            //       friends_input.rename 在巡检发布环节统一转换，此处源清单始终用原生命名，
+            //       不要改成 title/siteurl/imgurl 直接写入。
+            // 【重要】写文件逻辑放在 try-catch 之外，Issue 删除也照样写入友链
+            // --------------------------
+            const defaultBranch = "main";
+            const filePath = "friends.json";
+            const fd = await github.rest.repos.getContent({ owner, repo, path: filePath, ref: defaultBranch });
+            const json = JSON.parse(Buffer.from(fd.data.content, "base64").toString("utf8"));
+            if (!Array.isArray(json.friends)) json.friends = [];
+
+            const norm = (u) => (u || "").trim().toLowerCase().replace(/^https?:\/\//i, "").replace(/\/$/, "");
+
+            // 重验场景：若友链已被删除则重新补入；否则仅更新链接页等可变字段
+            let entry = json.friends.find((f) => norm(f.link) === norm(finalSiteurl));
+            if (!entry) {
+              entry = {
+                name: title,
+                link: finalSiteurl,
+                avatar: imgurl,
+                linkpage: "",
+                verified: false,
+                rss: "",
+                desc: desc,
+                tags: ["Blog"],
+                enabled: true,
+                weight: 5,
+                issue_id: issueId,
+              };
+              json.friends.push(entry);
+            } else {
+              entry.name = entry.name || title;
+              entry.avatar = entry.avatar || imgurl;
+              entry.desc = entry.desc || desc;
+              entry.enabled = true;
+              if (!entry.issue_id) entry.issue_id = issueId;
+            }
+            if (linkpage) entry.linkpage = linkpage;
+
+            // 顶层元信息（blog-bot 消费侧 version 缺省按 1 处理）
+            if (!json.version) json.version = 1;
+            const now = new Date();
+            json.updatedAt = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+            await github.rest.repos.createOrUpdateFileContents({
+              owner, repo, path: filePath,
+              message: "💛 新增友链：" + title,
+              content: Buffer.from(JSON.stringify(json, null, 2), "utf8").toString("base64"),
+              sha: fd.data.sha,
+              branch: defaultBranch,
+            });
+
+            // Issue 相关操作（评论、删标签、关闭）包裹捕获404
+            try {
+              const iss = await github.rest.issues.get({ owner, repo, issue_number });
+              const labels = (iss.data.labels || []).map((l) => l.name);
+              if (labels.includes("待更新")) {
+                await github.rest.issues.removeLabel({ owner, repo, issue_number, name: "待更新" });
+              }
+              await github.rest.issues.createComment({
+                owner, repo, issue_number,
+                body: "✅ 反链核验与可访问性检查均通过（引擎：" + (result.engine || "playwright") + "），已自动添加友链 **" + title + "**（" + finalSiteurl + "）。\n\nfriends.json 已更新，主检测流程即将自动运行生成最新数据。",
+              });
+              await github.rest.issues.update({ owner, repo, issue_number, state: "closed" });
+            } catch(err) {
+              core.warning(`Issue ${issue_number} 已被删除，跳过评论/关闭issue，友链已经成功写入 friends.json：${err.message}`);
+            }
+
+      - name: 触发主检测工作流
+        # friends.json 变更后立即跑一轮检测/朋友圈抓取，不必等下一个 cron 周期
+        if: steps.parse.outputs.shouldVerify == 'true'
+        run: |
+          gh workflow run "Friend Circle Lite" --repo "${{ github.repository }}" --ref main
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -3,3 +3,6 @@ requests
 feedparser==6.0.11
 PyYAML==6.0.1
 jinja2==3.1.2
+# 无头浏览器反链兜底：自动识别 VitePress / Astro 等 JS 渲染站的返链。
+# 未安装时反链检测自动回退为静态匹配，不影响其他功能。
+playwright

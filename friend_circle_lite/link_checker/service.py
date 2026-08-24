@@ -30,8 +30,10 @@ from friend_circle_lite.domain.models import (
     Website,
     calculate_elapsed_days,
     normalize_latency,
+    pick_display_latency,
 )
 from friend_circle_lite.storage.sqlite_store import LinkCheckStore
+from friend_circle_lite.link_checker import headless as headless_checker
 
 
 LINK_CHECK_HEADERS = {
@@ -80,6 +82,7 @@ class LinkReachabilityService:
         feed_parser=None,
         feed_discovery=None,
         fetcher: WebFetchClient | None = None,
+        eo_ping_url: str = "",
     ):
         self.config = config
         self.proxy_settings = proxy_settings
@@ -88,10 +91,21 @@ class LinkReachabilityService:
         self.feed_parser = feed_parser
         self.feed_discovery = feed_discovery
         self.fetcher = fetcher
+        self.eo_ping_url = eo_ping_url or ""
         self.feed_updates: dict[str, CacheRecord | None] = {}
 
     def check_websites(self, websites: list[Website]) -> list[LinkCheckRecord]:
         """检查一组友链，优先复用未过期缓存。"""
+        try:
+            return self._check_websites_inner(websites)
+        finally:
+            # 无头渲染兜底若被触发会持有 chromium 进程，检测结束统一释放。
+            try:
+                headless_checker.shutdown()
+            except Exception:
+                pass
+
+    def _check_websites_inner(self, websites: list[Website]) -> list[LinkCheckRecord]:
         cached_records = self.store.load_records([website.url for website in websites])
         records_by_url: dict[str, LinkCheckRecord] = {}
         websites_to_check: list[Website] = []
@@ -163,12 +177,24 @@ class LinkReachabilityService:
                 time.sleep(0.2)
             record = self._compose_non_rss_record(website, cached, homepage, api)
 
+        # 国内视角延迟探针（可选）：eo_ping_url 未配置则跳过，latency_cn 保持 -1
+        record.verified = website.verified
+        record.latency_cn = self.get_domestic_latency(session, website.url)
+        record.latency_display = pick_display_latency(record.best_latency, record.latency_cn)
+
         if record.reachable and self.config.enable_backlink_check and self.config.author_url and website.linkpage:
             record.backlink_checked = True
             record.has_author_link = self._check_author_link_in_page(session, website.linkpage)
         elif not record.reachable:
             record.backlink_checked = bool(website.linkpage)
             record.has_author_link = False
+
+        # 人工核验反链（verified）：CF 等反爬站点 bot 抓不到，但站长已确认，强制采信
+        if not record.has_author_link and record.verified:
+            logging.info(f"[verified] {website.name} 已人工核验反链，强制记为有反链")
+            record.backlink_checked = True
+            record.has_author_link = True
+
         return record
 
     def _check_rss_first(self, website: Website, cached: LinkCheckRecord | None) -> LinkCheckRecord | None:
@@ -262,6 +288,31 @@ class LinkReachabilityService:
             logging.warning(f"[API 检查] 解析响应失败: {url} ，错误: {exc}")
             return LinkMethodStatus(success=False, status_code=response.status_code, latency=latency)
 
+    def get_domestic_latency(self, session: requests.Session, target: str) -> float:
+        """国内视角延迟探针：调用钉在国内地域的 EO 云函数，返回秒（与 best_latency 单位一致），失败返回 -1。
+
+        该端点由 edgeone.json 的 mainlandRegions 钉死到国内地域；即便从 GitHub Actions 美国
+        runner 调用，其 fetch 目标也走国内出口，测到的是"国内视角"延迟。
+        """
+        if not self.eo_ping_url:
+            return -1
+        if not self._is_url(target):
+            return -1
+        probe_url = f"{self.eo_ping_url.rstrip('/')}?url={quote(target, safe='')}"
+        try:
+            response = session.get(probe_url, headers=RAW_HEADERS, timeout=20)
+        except requests.RequestException as exc:
+            logging.warning(f"[国内探针] 请求失败: {target} ，错误: {exc}")
+            return -1
+        try:
+            data = response.json()
+        except Exception as exc:
+            logging.warning(f"[国内探针] 解析响应失败: {target} ，错误: {exc}")
+            return -1
+        if data.get("ok") and isinstance(data.get("latency"), (int, float)):
+            return float(data.get("latency"))
+        return -1
+
     def _compose_non_rss_record(
         self,
         website: Website,
@@ -308,21 +359,27 @@ class LinkReachabilityService:
         if response is None:
             return False
 
-        author_url = self.config.author_url
-        if not author_url.startswith(("http://", "https://")):
-            author_url = "https://" + author_url
+        # 1) 静态 HTML 全文匹配（覆盖绝大多数站点，零额外开销）。
+        if self._match_author_link_in_content(response.text):
+            return True
 
-        variants = {
-            author_url,
-            author_url.replace("https://", "http://"),
-            author_url.replace("https://", "//"),
-            author_url.replace("https://", ""),
-            self.config.author_url,
-            "//" + self.config.author_url,
-            "https://" + self.config.author_url,
-            "http://" + self.config.author_url,
-        }
-        content = response.text
+        # 2) 静态未命中：VitePress / Astro 等客户端渲染站，友链由 JS 运行时生成，
+        #    初始 HTML 不含作者域名，退化到无头浏览器渲染后再判定。
+        if self.config.backlink_headless and headless_checker.available():
+            logging.info(f"[反链] 静态未命中，尝试无头渲染 {linkpage_url}")
+            try:
+                if headless_checker.check_or_false(linkpage_url, self.config.author_url, timeout=self.config.timeout):
+                    return True
+            except Exception as exc:
+                logging.warning(f"[反链-无头] 兜底判定异常 {linkpage_url}: {exc}")
+        return False
+
+    def _match_author_link_in_content(self, content: str) -> bool:
+        author_url = self.config.author_url
+        if not author_url or not content:
+            return False
+        # 复用 headless 模块的变体生成，避免两套逻辑分叉（已处理已带协议的情况）。
+        variants = headless_checker._build_variants(author_url)
         for variant in variants:
             if (
                 f'href="{variant}"' in content

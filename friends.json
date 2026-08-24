@@ -1,0 +1,272 @@
+{
+  "friends": [
+    {
+      "name": "临渊羡鱼",
+      "link": "https://x1anyu.cn",
+      "avatar": "https://x1anyu.cn/assets/images/avatar.png",
+      "linkpage": "",
+      "verified": false,
+      "rss": "",
+      "desc": "久有羡鱼意，不甘空望川. 躬身耕岁月，步步赴清澜",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 10
+    },
+    {
+      "name": "夏夜流萤",
+      "link": "https://blog.cuteleaf.cn",
+      "avatar": "https://weavatar.com/avatar/d252655d40d6874417a720bad0a6c5f77f8f6a1fd2f882f8f338402dc37e4190?s=640",
+      "linkpage": "https://blog.cuteleaf.cn/friends/",
+      "verified": false,
+      "rss": "",
+      "desc": "飞萤之火自无梦的长夜亮起，绽放在终竟的明天。",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 9
+    },
+    {
+      "name": "fqzlr",
+      "link": "https://fqzlr.com/",
+      "avatar": "https://q1.qlogo.cn/g?b=qq&nk=20447289&s=640",
+      "linkpage": "https://fqzlr.com/friends/",
+      "verified": false,
+      "rss": "https://fqzlr.com/rss.xml",
+      "desc": "躬身入局，心为主理，行有尺度，自持本心.",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 5
+    },
+    {
+      "name": "团子和蛋糕",
+      "link": "https://blog.tsh520.cn",
+      "avatar": "https://blog.tsh520.cn/assets/ziyuan/tx.webp",
+      "linkpage": "https://blog.tsh520.cn/friends/",
+      "verified": false,
+      "rss": "https://blog.tsh520.cn/rss.xml",
+      "desc": "如果你喜欢那么欢迎来到我的世界！",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 5
+    },
+    {
+      "name": "年华",
+      "link": "https://blog.amamo.top",
+      "avatar": "https://q1.qlogo.cn/g?b=qq&nk=1323860289&s=640",
+      "linkpage": "https://blog.amamo.top/friends/",
+      "verified": false,
+      "rss": "https://blog.amamo.top/rss.xml",
+      "desc": "分享生活和技术。",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 5
+    },
+    {
+      "name": "Xixmu",
+      "link": "https://xixmu.top",
+      "avatar": "https://xixmu.top/_astro/head_ima.rsW3s28l_1KtIxl.avif",
+      "linkpage": "https://xixmu.top/friends/",
+      "verified": false,
+      "rss": "https://xixmu.top/rss.xml",
+      "desc": "在记忆干枯前描绘。",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 5
+    },
+    {
+      "name": "Silvaire's Blog",
+      "link": "https://silvaire.top/",
+      "avatar": "https://wsrv.nl/?url=avatars.githubusercontent.com/u/184231508?s=400&u=0a370792ba6bbb95a04d309171b562bcd7283a0f&v=3",
+      "linkpage": "https://silvaire.top/friends/",
+      "verified": false,
+      "rss": "https://silvaire.top/rss.xml",
+      "desc": "Per Aspera Ad Astra",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 5
+    },
+    {
+      "name": "MmzMing的知识库",
+      "link": "https://tblog.mmzhiku.xyz",
+      "avatar": "https://i.stardots.io/784774835/StarDots-2026052116374135506.jpg",
+      "linkpage": "https://tblog.mmzhiku.xyz/friends/",
+      "verified": false,
+      "rss": "https://tblog.mmzhiku.xyz/rss.xml",
+      "desc": "哈基米，南北绿豆",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 5
+    },
+    {
+      "name": "UpXuu's blog",
+      "link": "https://upxuu.com",
+      "avatar": "https://upxuu.com/images/me.jpg",
+      "linkpage": "https://upxuu.com/friends/",
+      "verified": false,
+      "rss": "https://upxuu.com/rss.xml",
+      "desc": "逐光而上",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 5
+    },
+    {
+      "name": "倾听风雨",
+      "link": "https://blog.qtfyu.top",
+      "avatar": "https://q1.qlogo.cn/g?b=qq&nk=3931968261&s=640",
+      "linkpage": "https://blog.qtfyu.top/friends/",
+      "verified": false,
+      "rss": "https://blog.qtfyu.top/rss.xml",
+      "desc": "被发现了huh！",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 5
+    },
+    {
+      "name": "萧小晓",
+      "link": "https://blog.lxlovo.top",
+      "avatar": "https://blog.lxlovo.top/assets/friends/png.png",
+      "linkpage": "https://blog.lxlovo.top/friends/",
+      "verified": false,
+      "rss": "https://blog.lxlovo.top/rss.xml",
+      "desc": "一个爱写文的菜鸡。",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 5
+    },
+    {
+      "name": "Zero - 浮生",
+      "link": "https://vtdd.vip",
+      "avatar": "https://vtdd.vip/_astro/avatar.ryzKiMN3_19g6Gw.webp",
+      "linkpage": "https://vtdd.vip/friends/",
+      "verified": false,
+      "rss": "https://vtdd.vip/rss.xml",
+      "desc": "浮生一刹万般皆舍",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 5
+    },
+    {
+      "name": "Olinl Blog",
+      "link": "https://blog.olinl.com",
+      "avatar": "https://blog.olinl.com/assets/images/avatar.webp",
+      "linkpage": "https://blog.olinl.com/friends/",
+      "verified": false,
+      "rss": "https://blog.olinl.com/rss.xml",
+      "desc": "分享、实践、学习",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 5
+    },
+    {
+      "name": "EGS-blog",
+      "link": "https://blog.egs.cc.cd",
+      "avatar": "https://blog.egs.cc.cd/hero/avatar.png",
+      "linkpage": "https://blog.egs.cc.cd/links",
+      "verified": false,
+      "rss": "",
+      "desc": "heron_i的小站",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 5
+    },
+    {
+      "name": "陌殊途左沐",
+      "link": "https://azuma.mstzuomu.space",
+      "avatar": "https://tu.mstzuomu.space/file/头像/1786942479049_azumahead.jpg",
+      "linkpage": "https://azuma.mstzuomu.space/friends/",
+      "verified": false,
+      "rss": "https://azuma.mstzuomu.space/rss.xml",
+      "desc": "热爱是拯救无趣人生的唯一途径",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 5
+    },
+    {
+      "name": "流欺の博客",
+      "link": "https://blog.lqay.cn",
+      "avatar": "https://q2.qlogo.cn/headimg_dl?dst_uin=1458619045&spec=0",
+      "linkpage": "https://blog.lqay.cn/index.php/friendshiplink/",
+      "verified": false,
+      "rss": "https://blog.lqay.cn/index.php/feed/",
+      "desc": "嗯对就是个博客",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 5
+    },
+    {
+      "name": "Phantomxjc",
+      "link": "https://xjc.ccwu.cc",
+      "avatar": "https://avatars.githubusercontent.com/phantomxjc?v=4&s=640",
+      "linkpage": "https://xjc.ccwu.cc/friends/",
+      "verified": true,
+      "rss": "https://xjc.ccwu.cc/rss.xml",
+      "desc": "记录个人生活和学习的一个网站。",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 5
+    },
+    {
+      "name": "furinafans",
+      "link": "https://furinafans.com",
+      "avatar": "https://furinafans.com/_astro/avatar.CmRtaOLc_Z4qUwo.webp",
+      "linkpage": "https://furinafans.com/friends/",
+      "verified": false,
+      "rss": "https://furinafans.com/rss.xml",
+      "desc": "你记得花，花就开，你记得我，我就在。",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 5
+    },
+    {
+      "name": "StackMeow",
+      "link": "https://www.stackmeow.tech",
+      "avatar": "https://www.stackmeow.tech/file/1787019249755_20260818101406385.jpeg",
+      "linkpage": "https://www.stackmeow.tech/friends/",
+      "verified": false,
+      "rss": "https://www.stackmeow.tech/rss.xml",
+      "desc": "人生是层层堆叠的经历，而内心永远保有一只自在小猫。",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 5
+    }
+  ],
+  "version": 1,
+  "updatedAt": "2026-08-24"
+}

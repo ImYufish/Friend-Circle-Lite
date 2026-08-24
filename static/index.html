@@ -1021,7 +1021,8 @@
           avatar: item.avatar || "",
           ok: "ok" in item ? item.ok : Boolean(item.reachable),
           rss: "rss" in item ? item.rss : Boolean(item.crawlable),
-          latency: item.latency,
+          // 展示延迟优先用 latency_display（巡检已按"国内/国外源站取更快者"自动选取），缺失时回退 latency
+          latency: item.latency_display != null && item.latency_display > 0 ? item.latency_display : item.latency,
           unreachable_days: item.unreachable_days ?? null,
           unreachable_since: item.unreachable_since || "",
           backlink: "backlink" in item ? item.backlink : item.has_backlink,

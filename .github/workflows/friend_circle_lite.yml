@@ -2,8 +2,26 @@ name: Friend Circle Lite
 
 on:
   schedule:
-    - cron: "22 */4 * * *"
+    - cron: "00 */4 * * *"
+  # 友链真源变更时自动巡检（本地手改 friends.json 推送后无需手动触发；
+  # Issue 申请流程由 apply-friend.yml 显式 gh workflow run，同样命中此路径过滤）
+  push:
+    branches: [main]
+    paths:
+      - "friends.json"
   workflow_dispatch:
+    inputs:
+      target_link:
+        description: "仅截取指定友链（名称或URL关键词，多个用 | 或逗号分隔，留空=按增量规则处理全部）"
+        required: false
+        type: string
+        default: ""
+
+# 检测与截图两个 job 都会强推 page 分支；定时 / 手动 / push 多入口可能并发互相覆盖，
+# 与 check-flink 同款串行化：同 group 排队、不取消在跑任务。
+concurrency:
+  group: friend-circle-lite
+  cancel-in-progress: false
 
 env:
   TZ: Asia/Shanghai
@@ -16,12 +34,13 @@ jobs:
     permissions:
       contents: write
       actions: write
+      issues: write
 
     steps:
-    - name: Pull Latest Repository
+    - name: 拉取最新代码
       uses: actions/checkout@v4
 
-    - name: Cache pip packages
+    - name: 缓存 pip 依赖
       uses: actions/cache@v4
       with:
         path: ~/.cache/pip
@@ -29,58 +48,156 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-pip-
 
-    - name: Install Python
+    - name: 安装 Python
       uses: actions/setup-python@v5
       with:
         python-version: '3.12'
 
-    - name: Install dependencies
+    - name: 安装依赖
       run: |
         python -m pip install --upgrade pip
         pip install -r requirements.txt
-    
-    - name: Ensure temp folder is not empty
+
+    - name: 安装 Playwright 浏览器（反链检测 JS 渲染兜底）
+      # 仅当开启反链无头兜底时才需要；未安装 playwright 时反链检测自动回退静态匹配。
       run: |
-        mkdir -p ./temp
-        echo "placeholder" > ./temp/.keep
+        playwright install --with-deps chromium
+    
+    - name: 恢复上一轮缓存（cache 分支）
+      # 缓存放独立分支而非平台 artifact：任何 CI 都能接，fork 者换平台无感
+      run: bash scripts/sync_cache.sh pull
 
-    - name: Download temp file artifact
-      uses: dawidd6/action-download-artifact@v6
-      with:
-        github_token: ${{secrets.GITHUB_TOKEN}}
-        branch: main
-        name: 'temp'
-        path: './temp'
-        if_no_artifact_found: warn
+    - name: 下载上一轮 link.json 作为基线
+      # 从 page 分支拉上一轮结果：供截图回填与告警 diff 使用；首轮无 page 分支时容忍失败
+      run: |
+        if git fetch origin "${PAGE_BRANCH}:refs/remotes/origin/${PAGE_BRANCH}" 2>/dev/null; then
+          git show "origin/${PAGE_BRANCH}:link.json" > link.baseline.json 2>/dev/null || echo "page 分支无 link.json，视为首轮"
+        else
+          echo "无 ${PAGE_BRANCH} 分支，视为首轮"
+        fi
+        ls -la link.baseline.json 2>/dev/null || true
 
-    - name: Check RSS feeds
+    - name: 抓取 RSS 文章
       env:
         SMTP_PWD: ${{ secrets.SMTP_PWD }}
         PROXY_URL: ${{ secrets.PROXY_URL }}
+        EO_PING_URL: ${{ secrets.EO_PING_URL }}
         FCL_REPO: ${{ github.repository }}
       run: |
-        echo "Checking RSS feeds..."
+        echo "开始抓取 RSS 文章..."
         python run.py
         ls ./temp
-    
-    - name: Upload temp file as artifact
+
+    - name: 后处理（截图回填 / 地域诊断 / 状态告警）
+      # 开关与行为配置集中在 conf.yaml 的 postprocess 段；此处仅注入敏感信息与路径
+      env:
+        QQ_BOT_ALERT_URL: ${{ secrets.QQ_BOT_ALERT_URL }}
+        QQ_BOT_ALERT_TOKEN: ${{ secrets.QQ_BOT_ALERT_TOKEN }}
+        WECOM_WEBHOOK_URL: ${{ secrets.WECOM_WEBHOOK_URL }}
+        LINK_BASELINE: ./link.baseline.json
+        LINK_CURRENT: ./link.json
+      run: |
+        python -m friend_circle_lite.postprocess all
+
+    - name: 友链 Issue 巡检回评
+      # 巡检异常回评对应申请 Issue（按 friends.json 中的 issue_id）；verified 站点不因反链误报
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const { owner, repo } = context.repo;
+          const norm = (u) => (u || '').trim().toLowerCase().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+
+          let data;
+          try {
+            data = JSON.parse(fs.readFileSync('./link.json', 'utf8'));
+          } catch (e) {
+            core.warning('读取 link.json 失败: ' + e.message);
+            return;
+          }
+          const statuses = data.link_data || [];
+          if (statuses.length === 0) { console.log('无 link_data，跳过回评'); return; }
+
+          const issueMap = {}, verifiedMap = {};
+          try {
+            const fd = await github.rest.repos.getContent({ owner, repo, path: 'friends.json', ref: 'main' });
+            const friends = JSON.parse(Buffer.from(fd.data.content, 'base64').toString('utf8')).friends || [];
+            for (const f of friends) {
+              if (f.link && f.issue_id) issueMap[norm(f.link)] = f.issue_id;
+              if (f.link && f.verified === true) verifiedMap[norm(f.link)] = true;
+            }
+          } catch (e) {
+            core.warning('读取 friends.json 失败: ' + e.message);
+            return;
+          }
+
+          const anomalyIds = new Set();
+          for (const s of statuses) {
+            const id = issueMap[norm(s.link || '')];
+            if (!id) continue;
+            const isVerified = verifiedMap[norm(s.link || '')] === true;
+            const isAnomaly = (s.reachable === false) || (s.has_backlink === false && !isVerified);
+            if (!isAnomaly) continue;
+            anomalyIds.add(id);
+
+            const iss = await github.rest.issues.get({ owner, repo, issue_number: id });
+            const labels = (iss.data.labels || []).map((l) => l.name);
+            if (labels.includes('待更新')) { console.log('Issue #' + id + ' 已带 待更新，跳过重复评论'); continue; }
+
+            let reason = '站点不可访问';
+            if (s.geo_status === 'geo_blocked') reason = '疑似地域拦截（geo_blocked）' + (s.geo_hint ? '：' + s.geo_hint : '');
+            else if (s.geo_status === 'error') reason = '站点访问错误' + (s.geo_hint ? '（' + s.geo_hint + '）' : '');
+            if (s.reachable !== false && s.has_backlink === false) reason = '未检测到指向本站的真实友链';
+
+            await github.rest.issues.createComment({
+              owner, repo, issue_number: id,
+              body: '⚠️ **定时巡检异常**：' + reason + '。\n\n请检查该友链，修复后在本 Issue 下回复任意内容即可重新验证（Issue 保持开放）。',
+            });
+            await github.rest.issues.addLabels({ owner, repo, issue_number: id, labels: ['待更新'] });
+            console.log('已对 Issue #' + id + ' 评论异常并打 待更新');
+          }
+
+          for (const id of new Set(Object.values(issueMap))) {
+            if (anomalyIds.has(id)) continue;
+            try {
+              const iss = await github.rest.issues.get({ owner, repo, issue_number: id });
+              const labels = (iss.data.labels || []).map((l) => l.name);
+              if (!labels.includes('待更新')) continue;
+              await github.rest.issues.removeLabel({ owner, repo, issue_number: id, name: '待更新' }).catch(() => {});
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: id,
+                body: '✅ **巡检已恢复正常**：当前可达且反链检测正常，已移除 `待更新` 标签。',
+              });
+              console.log('Issue #' + id + ' 已恢复正常，移除 待更新');
+            } catch (e) {
+              core.warning('处理恢复通知失败 (Issue #' + id + '): ' + e.message);
+            }
+          }
+
+    - name: 回写缓存到 cache 分支
+      run: bash scripts/sync_cache.sh push
+
+    - name: 上传 link.json 供截图 job 使用
       uses: actions/upload-artifact@v4
       with:
-        name: 'temp'
-        path: './temp'
-        retention-days: 30
+        name: 'link_json'
+        path: './link.json'
+        retention-days: 3
 
     - name: git config
       run: |
         git config --global user.name 'github-actions[bot]'
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
-    - name: Build static publish directory
+    - name: 组装静态发布目录
       run: |
         mkdir pages
         cp -r main ./static/edgeone.json ./static/_headers ./static/index.html ./static/readme.md ./static/favicon.ico ./static/bg-light.webp ./static/bg-dark.webp all.json link.json errors.json pages/
+        # friends.json 按 conf.yaml 的 friends_input.rename 转换字段名后发布到 page 分支；
+        # 未配置映射则原样输出。fc.yufish.cn/friends.json 供博客(my-blog)等消费方拉取。
+        python -m friend_circle_lite.friends_publish --src friends.json --dst pages/friends.json
 
-    - name: Publish static assets to branches
+    - name: 发布静态产物到分支
       run: |
         published_tree=""
         if git fetch origin "${PAGE_BRANCH}:refs/remotes/origin/${PAGE_BRANCH}"; then
@@ -91,22 +208,86 @@ jobs:
         git add .
         generated_tree=$(git write-tree)
         if [ -n "$published_tree" ] && [ "$generated_tree" = "$published_tree" ]; then
-          echo "No static asset changes; skipping page branch update."
+          echo "静态产物无变化，跳过 page 分支更新。"
           exit 0
         fi
         git commit -m "⏱️ $(date +"%Y年%m月%d日-%H时%M分") GitHub Actions定时更新"
         git push --force https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git HEAD:${{ env.PAGE_BRANCH }}
 
-    - name: Delete Workflow Runs
+    - name: 清理旧 Workflow 运行记录
       uses: Mattraks/delete-workflow-runs@v2
       with:
         retain_days: 30
         keep_minimum_runs: 6
 
-  keepalive-workflow:
-    name: Keepalive Workflow
-    if: ${{ always() }}
+  take-screenshots:
+    name: 截取友链主页截图
     needs: friend-circle-lite
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 拉取最新代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装截图依赖
+        run: pip install requests selenium webdriver-manager
+
+      - name: 安装 Chrome
+        uses: browser-actions/setup-chrome@v2
+        with:
+          chrome-version: stable
+
+      - name: 安装中文字体
+        # 保证截图里中文字形正常渲染
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq fonts-noto-cjk fonts-wqy-zenhei
+
+      - name: 从检测 job 下载 link.json
+        uses: actions/download-artifact@v4
+        with:
+          name: 'link_json'
+          path: '.'
+
+      - name: 执行截图（增量）
+        # 上传目录/并发数/刷新周期等开关在 conf.yaml 的 postprocess.siteshot；此处仅注入密钥与手动指定目标
+        env:
+          IMG_UPLOAD_URL: ${{ secrets.IMG_UPLOAD_URL }}
+          IMG_AUTH_CODE: ${{ secrets.IMG_AUTH_CODE }}
+          LINK_CURRENT: ./link.json
+          TARGET_LINK: ${{ github.event.inputs.target_link }}
+        run: |
+          echo "开始增量截图..."
+          python -m friend_circle_lite.screenshots.runner
+
+      - name: 将带截图的 link.json 发布到 page 分支
+        env:
+          PAGE_BRANCH: page
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git clone --depth 1 --branch "$PAGE_BRANCH" "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" publish_tmp
+          cp ./link.json publish_tmp/link.json
+          cd publish_tmp
+          git add link.json
+          if git diff --cached --quiet; then
+            echo "link.json 无变化，跳过提交"
+          else
+            git commit -m "📸 $(date +"%Y年%m月%d日-%H时%M分") 更新友链截图"
+            git push origin "$PAGE_BRANCH"
+          fi
+
+  keepalive-workflow:
+    name: 保活巡检
+    if: ${{ always() }}
+    needs: [friend-circle-lite, take-screenshots]
     runs-on: ubuntu-latest
     permissions:
       actions: write
