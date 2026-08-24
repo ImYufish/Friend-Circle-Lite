@@ -27,6 +27,8 @@ def fetch_and_process_data(
     proxy_settings=None,
     list_key: str = "friends",
     field_mapping: dict = None,
+    source: str = "local",
+    local_friends_file: str = "friends.json",
 ):
     """Legacy wrapper around the new crawler orchestration service."""
     return FriendCircleCrawlService(
@@ -38,6 +40,8 @@ def fetch_and_process_data(
         proxy_settings=proxy_settings,
         list_key=list_key,
         field_mapping=field_mapping,
+        source=source,
+        local_friends_file=local_friends_file,
     ).run()
 
 def sort_articles_by_time(data, future_tolerance_days=2):

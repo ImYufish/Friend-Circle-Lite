@@ -6,11 +6,13 @@ debug: false
 # 爬虫相关配置
 # 说明：从友链 JSON 中读取站点列表，抓取各站点 RSS 文章，并生成 all.json。
 #   enable:        是否启用爬虫
-#   json_url:      友链 JSON 地址，仅支持网络地址
+#   json_url:      友链 JSON 地址，仅 remote 模式下使用（网络地址）
 #   article_count: 每个站点最多抓取的文章数量
+#   local_friends_file: local 模式读取的本地友链真源文件（相对仓库根），默认 friends.json
 # 友链真源模式：local（默认）| remote
-#   local  = 真源在 FCL 仓库 friends.json（下方 json_url 指向本仓库 raw.githubusercontent.com，
-#            或自行改为本地路径/镜像地址均可）。FCL 负责维护该文件，申请通过会自动写回。
+#   local  = 真源在 FCL 仓库 checkout 下来的 friends.json（直接读本地文件，不依赖实时 github main，
+#            避免镜像竞态下 raw 端点翻面导致爬不到数据）；可选 local_friends_file 改读取路径。
+#            FCL 负责维护该文件，申请通过会自动写回。
 #   remote = 真源在外部博客友链端点（如你博客的 /friends.json）。此时把 json_url 改成该端点地址，
 #            FCL 仅作巡检展示，不再写回/维护本地 friends.json；
 #            对应的 Issue 机制整套关闭（自助申请开箱即关单、巡检回评整体跳过，详见 docs/deploy.md），
@@ -22,7 +24,6 @@ debug: false
 spider_settings:
   enable: true
   source: local
-
   json_url: "https://raw.githubusercontent.com/ImYufish/Friend-Circle-Lite/main/friends.json"
   article_count: 5
   # 真源在外部端点（source=remote）时，端点 JSON 的顶层键名，默认 friends。

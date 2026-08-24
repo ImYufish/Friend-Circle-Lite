@@ -61,9 +61,15 @@ class FriendCircleLiteApplication:
             f"[爬虫入口] 友链真源模式：{spider_settings.source}（"
             f"{'FCL 仓库 friends.json' if spider_settings.source != 'remote' else '外部博客友链端点，纯巡检展示'}）"
         )
-        logging.info(
-            f"[爬虫入口] 正在从 {spider_settings.json_url} 获取友链原始数据，每站最多 {spider_settings.article_count} 篇文章"
-        )
+        if spider_settings.source == "local":
+            logging.info(
+                f"[爬虫入口] 正在读取本地友链文件 {spider_settings.local_friends_file}（真源模式 local），"
+                f"每站最多 {spider_settings.article_count} 篇文章"
+            )
+        else:
+            logging.info(
+                f"[爬虫入口] 正在从 {spider_settings.json_url} 获取友链原始数据，每站最多 {spider_settings.article_count} 篇文章"
+            )
 
         crawl_result = fetch_and_process_data(
             json_url=spider_settings.json_url,
@@ -74,6 +80,8 @@ class FriendCircleLiteApplication:
             proxy_settings=self.config.proxy_settings,
             list_key=spider_settings.list_key,
             field_mapping=spider_settings.friends_input.rename,
+            source=spider_settings.source,
+            local_friends_file=spider_settings.local_friends_file,
         )
         if crawl_result is None:
             logging.error("[爬虫入口] 抓取流程失败，未生成任何输出文件")

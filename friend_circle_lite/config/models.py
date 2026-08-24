@@ -75,12 +75,15 @@ class SpiderSettings:
 
     enable: bool = True
     # 友链真源模式：
-    #   local（默认）= 真源在 FCL 仓库 friends.json（json_url 指向本仓库 raw 或本地）；
+    #   local（默认）= 真源在 FCL 仓库 checkout 下来的 friends.json（直接读本地文件 local_friends_file，
+    #                  不依赖实时 github main，避免镜像竞态下 raw 端点翻面导致爬不到数据）。
     #   remote        = 真源在外部博客友链端点（json_url 指向该端点，如 https://你的博客/friends.json）。
     #   remote 模式下 FCL 仅作巡检展示，不维护/写回本地 friends.json，
     #   对应的 Issue 自助申请与巡检回评整套关闭（见 apply_friend / cnb_issue_report）。
     source: str = "local"
     json_url: str = ""
+    # local 模式下读取的本地友链真源文件路径（相对仓库根/工作目录），默认 friends.json。
+    local_friends_file: str = "friends.json"
     article_count: int = 5
     # 真源在外部端点（source=remote）时，端点 JSON 的顶层键名，默认 friends。
     # 别人的端点可能用 link_list / data 等，配这里即可，FCL 不再硬编码 friends。
@@ -242,6 +245,7 @@ class ApplicationConfig:
                 enable=bool(spider_raw.get("enable", True)),
                 source=str(spider_raw.get("source", "local")).strip().lower() or "local",
                 json_url=str(spider_raw.get("json_url", "")).strip(),
+                local_friends_file=str(spider_raw.get("local_friends_file", "friends.json")).strip() or "friends.json",
                 article_count=int(spider_raw.get("article_count", 5)),
                 list_key=str(spider_raw.get("list_key", "friends")).strip() or "friends",
                 friends_input=FriendsInputSettings(

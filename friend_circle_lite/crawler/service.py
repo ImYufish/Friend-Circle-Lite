@@ -7,6 +7,7 @@ formatting.
 
 from __future__ import annotations
 
+import json
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
@@ -113,6 +114,8 @@ class FriendCircleCrawlService:
         proxy_settings: ProxySettings | None = None,
         list_key: str = "friends",
         field_mapping: dict[str, str] | None = None,
+        source: str = "local",
+        local_friends_file: str = "friends.json",
     ):
         self.json_url = json_url
         self.count = count
@@ -124,6 +127,9 @@ class FriendCircleCrawlService:
         # 外部端点顶层键（默认 friends）与字段桥接映射（键=FCL字段，值=外部字段名）
         self.list_key = list_key or "friends"
         self.field_mapping = field_mapping or {}
+        # 真源模式：local=读 checkout 下来的本地 friends.json；remote=从 json_url 拉外部端点
+        self.source = source or "local"
+        self.local_friends_file = local_friends_file
 
     def run(self) -> tuple[dict, list[list[str]]] | None:
         """Fetch website list, crawl all websites, and build public outputs."""
@@ -289,12 +295,13 @@ class FriendCircleCrawlService:
         return friend_data
 
     def _load_websites(self, session: requests.Session) -> list[Website] | None:
-        try:
-            response = session.get(self.json_url, headers=HEADERS_JSON, timeout=timeout)
-            response.raise_for_status()
-            friends_data = response.json()
-        except Exception as exc:
-            logging.error(f"无法获取链接：{self.json_url} ：{exc}", exc_info=True)
+        if self.source == "local":
+            # 真源模式 local：友链真源就是本仓库 checkout 下来的 friends.json，
+            # 直接读本地文件，避免依赖实时 github main（镜像竞态下 raw 端点可能翻面）。
+            friends_data = self._load_local_friends()
+        else:
+            friends_data = self._load_remote_friends(session)
+        if friends_data is None:
             return None
 
         # 外部端点可能用非 friends 的顶层键（link_list / data 等），按 list_key 取数
@@ -313,6 +320,25 @@ class FriendCircleCrawlService:
             except Exception:
                 logging.warning(f"发现格式异常的友链数据，已跳过: {friend!r}")
         return list(website_map.values())
+
+    def _load_local_friends(self) -> dict | None:
+        """local 模式：从 checkout 下来的本地 friends.json 读取友链真源。"""
+        try:
+            with open(self.local_friends_file, "r", encoding="utf-8") as fh:
+                return json.load(fh)
+        except Exception as exc:
+            logging.error(f"无法读取本地友链文件：{self.local_friends_file} ：{exc}", exc_info=True)
+            return None
+
+    def _load_remote_friends(self, session: requests.Session) -> dict | None:
+        """remote 模式：从 json_url 拉取外部友链端点。"""
+        try:
+            response = session.get(self.json_url, headers=HEADERS_JSON, timeout=timeout)
+            response.raise_for_status()
+            return response.json()
+        except Exception as exc:
+            logging.error(f"无法获取链接：{self.json_url} ：{exc}", exc_info=True)
+            return None
 
     def _build_manual_records(self) -> list[CacheRecord]:
         manual_records: list[CacheRecord] = []

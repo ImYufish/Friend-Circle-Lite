@@ -413,6 +413,7 @@ class RefactorContractsTest(unittest.TestCase):
         config = ApplicationConfig.from_dict({
             "spider_settings": {
                 "enable": True,
+                "source": "remote",
                 "json_url": "https://example.com/friends.json",
                 "article_count": 3,
             },
@@ -936,7 +937,7 @@ class RefactorContractsTest(unittest.TestCase):
         self.assertEqual(fallback.name, "Fallback")
 
     def test_load_websites_deduplicates_by_normalized_homepage_url(self):
-        service = FriendCircleCrawlService(json_url="https://example.com/friends.json", count=1)
+        service = FriendCircleCrawlService(json_url="https://example.com/friends.json", count=1, source="remote")
 
         class Response:
             def raise_for_status(self):
