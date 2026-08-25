@@ -951,7 +951,7 @@
         links: {
           title: "友链可达性数据",
           description: "记录站点连通、RSS 可抓取、反链与参考延迟，轻轻翻看便知近况。",
-          defaultFilter: "unreachable",
+          defaultFilter: "all",
           filters: [
             ["unreachable", "不可达"],
             ["uncrawlable", "不可抓取"],
@@ -1014,7 +1014,8 @@
 
       function normalizeLinks(payload) {
         const items = payload.links || payload.link_data || [];
-        return items.map((item) => ({
+        return items.map((item, idx) => ({
+          idx,
           name: item.name || "",
           url: item.url || item.link || "",
           page: item.page || item.link_page || "",
@@ -1319,7 +1320,8 @@
         if (state.filter === "noBacklink") {
           return Number(right.ok) - Number(left.ok) || left.name.localeCompare(right.name, "zh-Hans-CN");
         }
-        return linkRank(left) - linkRank(right) || left.name.localeCompare(right.name, "zh-Hans-CN");
+        // 全部/前24：保留 link.json 原始顺序（即 friends.json 配置顺序），不再按可达性分级或中文名重排
+        return left.idx - right.idx;
       }
 
       function normalizeSortLatency(value) {
