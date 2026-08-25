@@ -133,6 +133,13 @@ def merge_link_data_from_json_url(link_data, merge_json_url):
         merged_stats.get("link_last_checked_time", ""),
     ]
     merged_stats["link_last_checked_time"] = max([item for item in checked_times if item] or [""])
+    # 接力传递本轮数据真正生成的时间，避免被 _recalculate_link_statistics 重算时丢弃。
+    merged_stats["data_updated_at"] = (
+        local_stats.get("data_updated_at")
+        or remote_stats.get("data_updated_at")
+        or merged_stats.get("link_last_checked_time")
+        or ""
+    )
 
     return {
         'statistical_data': merged_stats,

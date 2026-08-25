@@ -253,6 +253,9 @@ class FriendCircleCrawlService:
             "api_only_num": len(api_only),
             "has_author_link_num": len(has_author_link),
             "link_last_checked_time": max(checked_times) if checked_times else "",
+            # 本轮数据真正生成的时间（墙钟），与缓存期内的友链实测时间无关。
+            # 前端「数据更新时间」展示它，避免被 24h 缓存复用导致的陈旧 checked_at 误导。
+            "data_updated_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
 
     @staticmethod

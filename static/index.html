@@ -1040,6 +1040,7 @@
           rss: stats.rss ?? stats.crawl_allowed_num,
           backlink: stats.backlink ?? stats.has_author_link_num,
           checked: stats.checked ?? stats.link_last_checked_time,
+          updated: stats.data_updated_at ?? stats.checked ?? stats.link_last_checked_time,
         };
       }
 
@@ -1387,7 +1388,7 @@
 
       function renderTime() {
         const time = state.view === "links"
-          ? state.linkStats.checked
+          ? (state.linkStats.updated || state.linkStats.checked)
           : state.articleStats.last_updated_time;
         document.getElementById("footer-time").textContent = time || "暂无更新时间";
       }

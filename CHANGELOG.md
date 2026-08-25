@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+### 修复：数据卡「更新时间」被 24h 检测缓存误导
+
+- `link_last_checked_time` 仅在友链真正被重测时刷新（设计如此，`link_check.max_age_hours` 默认 24 小时），导致每日多次巡检后该时间仍停在友链上次实测时刻，数据卡显示陈旧。
+- 新增顶层字段 `data_updated_at`：本轮 `link.json` 真正生成时的墙钟时间，不受缓存复用影响。
+- 前端「CURRENT VIEW TIME」在友链视图下优先展示 `data_updated_at`（缺失时回退 `link_last_checked_time`），现已反映真实生成时间。
+
+---
+
 ## [2.1.0] - 2026-06-08
 
 ### 本次更新范围
