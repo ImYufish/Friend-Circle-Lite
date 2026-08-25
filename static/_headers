@@ -3,7 +3,8 @@
   Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE
   Access-Control-Allow-Headers: *
 
-# 数据接口与页面本身：每次都回源校验，避免 EdgeOne/浏览器缓存旧版导致友链清册长时间不刷新。
+# 数据接口与页面本身：每次都回源校验，避免 Vercel/浏览器缓存旧版导致友链清册长时间不刷新。
+# 注意：本项目由 Vercel 从 page 分支自动部署，Vercel 只认根目录 _headers，不读 edgeone.json（那是死配置）。
 # 静态资源（图片/字体）仍可长缓存，不影响新鲜度。
 /all.json
   Cache-Control: no-cache
