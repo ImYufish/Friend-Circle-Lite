@@ -983,6 +983,7 @@
           state.linkStats = normalizeLinkStats(linkPayload);
           state.articles = articlePayload.article_data || [];
           state.articleStats = articlePayload.statistical_data || {};
+          state.filter = viewConfig[state.view].defaultFilter;
           render();
         })
         .catch((error) => {
