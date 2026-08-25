@@ -2,3 +2,23 @@
   Access-Control-Allow-Origin: *
   Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE
   Access-Control-Allow-Headers: *
+
+# 数据接口与页面本身：每次都回源校验，避免 EdgeOne/浏览器缓存旧版导致友链清册长时间不刷新。
+# 静态资源（图片/字体）仍可长缓存，不影响新鲜度。
+/all.json
+  Cache-Control: no-cache
+
+/link.json
+  Cache-Control: no-cache
+
+/errors.json
+  Cache-Control: no-cache
+
+/friends.json
+  Access-Control-Allow-Origin: *
+  Access-Control-Allow-Methods: GET, POST, OPTIONS, PUT, DELETE
+  Access-Control-Allow-Headers: *
+  Cache-Control: no-cache
+
+/index.html
+  Cache-Control: no-cache
