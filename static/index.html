@@ -1152,7 +1152,7 @@
           return { status: "暂不可达", label: "不可达时长", value: unreachableDays, icon: "fa-solid fa-cloud" };
         }
         if (link.rss && link.stale_days !== null && link.stale_days !== undefined) {
-          return { status: "RSS 可解析", label: "最近更新", value: `${link.stale_days} 天未更`, icon: "fa-solid fa-rss" };
+          return { status: "RSS 可解析", label: "最近更新", value: formatStaleAge(link), icon: "fa-solid fa-rss" };
         }
         if (link.rss) {
           return { status: "RSS 可解析", label: "最近更新", value: compactUpdateAge(link), icon: "fa-solid fa-rss" };
@@ -1282,7 +1282,7 @@
 
       function matchLinkFilter(link) {
         if (state.filter === "unreachable") return !link.ok;
-        if (state.filter === "stale") return link.rss && link.stale_days !== null;
+        if (state.filter === "stale") return link.rss && link.stale_days !== null && link.stale_days > 0;
         if (state.filter === "uncrawlable") return !link.rss;
         if (state.filter === "noBacklink") return link.backlink !== true;
         return true;
@@ -1337,7 +1337,7 @@
 
       function isFeatured(link) {
         if (state.filter === "unreachable") return !link.ok;
-        if (state.filter === "stale") return link.rss && link.stale_days !== null;
+        if (state.filter === "stale") return link.rss && link.stale_days !== null && link.stale_days > 0;
         if (state.filter === "uncrawlable") return !link.rss;
         if (state.filter === "noBacklink") return link.backlink !== true;
         return false;
@@ -1355,8 +1355,15 @@
         return `${days} 天`;
       }
 
+      function formatStaleAge(link) {
+        const d = link.stale_days;
+        if (d === null || d === undefined) return "暂无记录";
+        if (d <= 0) return "今天";
+        return `${d} 天未更`;
+      }
+
       function compactUpdateAge(link) {
-        if (link.stale_days !== null && link.stale_days !== undefined) return `${link.stale_days} 天未更`;
+        if (link.stale_days !== null && link.stale_days !== undefined) return formatStaleAge(link);
         if (link.updated) return "有记录";
         return "暂无记录";
       }
@@ -1366,8 +1373,10 @@
       }
 
       function formatStaleDays(link) {
-        if (link.stale_days === null || link.stale_days === undefined) return "暂无记录";
-        return `${link.stale_days} 天`;
+        const d = link.stale_days;
+        if (d === null || d === undefined) return "暂无记录";
+        if (d <= 0) return "今天";
+        return `${d} 天`;
       }
 
       function formatBacklink(link) {
