@@ -4,9 +4,12 @@
 监控规则（verified 人工核验站点不因反链误报）：
 - 异常：reachable true→false；has_backlink true→false
 - 恢复：reachable false→true；has_backlink false→true（且本轮无其他异常）
-- 持续离线：站点已不可达，且 unreachable_days 跨过 down_days_threshold（默认 0=关闭）。
-  仅在「上轮已不可达、本轮天数刚跨过阈值」时触发一次，避免每次巡检重复推送，
-  也与「刚掉线」的异常提醒区分开。
+- 持续离线：站点已不可达，且 unreachable_days 跨过 link_checker 退避档位
+  （RetryBackoffPolicy.NOTIFY_TIERS：挂满 10/30/60 天各提醒一次）。告警节奏与
+  系统实际复探节奏一致，仅在「上轮已不可达、本轮天数刚跨过某档位」时触发一次，
+  避免每次巡检重复推送，也与「刚掉线」的异常提醒区分开。
+- 反链长期缺失：has_backlink 连续为 False 超过 backlink_lost_days_threshold
+  （默认 7 天，0=关闭）才追加提醒。仅「上轮已缺失、本轮天数刚跨过阈值」触发一次。
 
 渠道优先级：
 1. QQ 单聊（主）：经 blog-bot Worker 中转 —— POST ``QQ_BOT_ALERT_URL``
@@ -30,6 +33,15 @@ from math import ceil
 import requests
 
 logger = logging.getLogger(__name__)
+
+# 持续不可达的通知档位，与 link_checker.RetryBackoffPolicy.NOTIFY_TIERS 保持一致
+# （挂满 10/30/60 天各提醒一次）。导入失败时回退到硬编码默认值，避免循环导入拖垮模块。
+try:
+    from friend_circle_lite.link_checker.service import RetryBackoffPolicy
+
+    SUSTAINED_TIERS = tuple(RetryBackoffPolicy.NOTIFY_TIERS)
+except Exception:  # pragma: no cover - 仅在 import 异常时触发
+    SUSTAINED_TIERS = (10, 30, 60)
 
 
 def _norm(u: str) -> str:
@@ -67,11 +79,17 @@ def _load_items(path: str) -> dict[str, dict]:
     return {_norm(it.get("link")): it for it in (data.get("link_data") or []) if it.get("link")}
 
 
-def diff(old_path: str, new_path: str, down_days_threshold: int = 0) -> dict[str, list[dict]]:
-    """对比两轮结果，返回 {"down", "backlink_lost", "recovered", "sustained_down"}。"""
+def diff(old_path: str, new_path: str, backlink_lost_days_threshold: int = 0) -> dict[str, list[dict]]:
+    """对比两轮结果，返回 {down, backlink_lost, recovered, sustained_down, sustained_backlink_lost}。"""
     old = _load_items(old_path)
     new = _load_items(new_path)
-    result: dict[str, list[dict]] = {"down": [], "backlink_lost": [], "recovered": [], "sustained_down": []}
+    result: dict[str, list[dict]] = {
+        "down": [],
+        "backlink_lost": [],
+        "recovered": [],
+        "sustained_down": [],
+        "sustained_backlink_lost": [],
+    }
     if not old:
         logger.info("[alert] 无上一轮 baseline（首轮），跳过告警")
         return result
@@ -79,7 +97,7 @@ def diff(old_path: str, new_path: str, down_days_threshold: int = 0) -> dict[str
     for key, cur in new.items():
         prev = old.get(key)
         if prev is None:
-            continue  # 新增友链不参与翻轉判断
+            continue  # 新增友链不参与翻转判断
         verified = bool(cur.get("verified"))
         name = cur.get("name", key)
 
@@ -91,25 +109,37 @@ def diff(old_path: str, new_path: str, down_days_threshold: int = 0) -> dict[str
             result["recovered"].append({"name": name, "link": cur.get("link", ""), "note": "站点恢复可访问"})
 
         # 反链丢失：仅对非 verified 生效；恢复同理
-        was_link, now_link = bool(prev.get("has_backlink")), bool(cur.get("has_backlink"))
-        if was_link and not now_link and not verified and now_up:
+        was_link, now_link = prev.get("has_backlink"), cur.get("has_backlink")
+        if was_link is True and now_link is False and not verified and now_up:
             result["backlink_lost"].append({"name": name, "link": cur.get("link", ""), "note": "友链页未再检测到本站反链"})
-        elif not was_link and now_link:
+        elif was_link is False and now_link is True:
             result["recovered"].append({"name": name, "link": cur.get("link", ""), "note": "反链重新检测到"})
 
-        # 持续不可达：仅当上轮已不可达、且本轮 unreachable_days 跨过阈值时触发一次。
-        # 不重复推送（每次巡检都报会刷屏），也不与「刚掉线」的 down 提醒重叠。
-        if down_days_threshold and not now_up:
+        # 持续不可达：站点已连续不可达，且 unreachable_days 本轮刚跨过某个退避档位
+        # （10/30/60 天）。仅触发一次、不重复，也不与「刚掉线」的 down 提醒重叠。
+        if not now_up and not was_up:
             cur_days = _as_int(cur.get("unreachable_days")) or _elapsed_days(cur.get("unreachable_since"))
-            prev_down = None
-            if prev is not None and not was_up:
-                prev_down = _as_int(prev.get("unreachable_days")) or _elapsed_days(prev.get("unreachable_since"))
-            if cur_days and cur_days >= down_days_threshold and (prev_down is None or prev_down < down_days_threshold):
-                result["sustained_down"].append({
+            prev_days = _as_int(prev.get("unreachable_days")) or _elapsed_days(prev.get("unreachable_since"))
+            for tier in SUSTAINED_TIERS:
+                if cur_days and cur_days >= tier and (prev_days is None or prev_days < tier):
+                    result["sustained_down"].append({
+                        "name": name,
+                        "link": cur.get("link", ""),
+                        "days": cur_days,
+                        "note": f"已持续不可达 {cur_days} 天",
+                    })
+                    break  # 一次 run 最多跨一个档位
+
+        # 反链长期缺失：has_backlink 连续为 False 且天数刚跨过阈值，触发一次。
+        if backlink_lost_days_threshold and cur.get("has_backlink") is False and prev.get("has_backlink") is False:
+            cur_bl = _as_int(cur.get("backlink_lost_days")) or _elapsed_days(cur.get("backlink_lost_since"))
+            prev_bl = _as_int(prev.get("backlink_lost_days")) or _elapsed_days(prev.get("backlink_lost_since"))
+            if cur_bl and cur_bl >= backlink_lost_days_threshold and (prev_bl is None or prev_bl < backlink_lost_days_threshold):
+                result["sustained_backlink_lost"].append({
                     "name": name,
                     "link": cur.get("link", ""),
-                    "days": cur_days,
-                    "note": f"已持续不可达 {cur_days} 天",
+                    "days": cur_bl,
+                    "note": f"已持续 {cur_bl} 天未检测到本站反链",
                 })
 
     return result
@@ -134,6 +164,10 @@ def format_markdown(changes: dict[str, list[dict]]) -> str:
         lines.append("**⏰ 持续离线**")
         for it in changes["sustained_down"]:
             lines.append(f"> [{it['name']}]({it['link']}) {it['note']}")
+    if changes["sustained_backlink_lost"]:
+        lines.append("**⏳ 反链长期缺失**")
+        for it in changes["sustained_backlink_lost"]:
+            lines.append(f"> [{it['name']}]({it['link']}) {it['note']}")
     return "\n".join(lines)
 
 
@@ -155,6 +189,10 @@ def format_plain(changes: dict[str, list[dict]]) -> str:
     if changes["sustained_down"]:
         lines.append("⏰ 持续离线")
         for it in changes["sustained_down"]:
+            lines.append(f"· {it['name']} {it['link']} {it['note']}")
+    if changes["sustained_backlink_lost"]:
+        lines.append("⏳ 反链长期缺失")
+        for it in changes["sustained_backlink_lost"]:
             lines.append(f"· {it['name']} {it['link']} {it['note']}")
     return "\n".join(lines)
 
@@ -196,10 +234,10 @@ def run(old_path: str, new_path: str, settings: object | None = None) -> bool:
     duck-typing 引用避免循环导入）；未传时回退读环境变量（兼容旧调用方式）。
     """
     if settings is not None:
-        threshold = int(getattr(settings, "down_days_threshold", 0) or 0)
+        backlink_threshold = int(getattr(settings, "backlink_lost_days_threshold", 0) or 0)
     else:
-        threshold = int(os.getenv("DOWN_DAYS_THRESHOLD", "0") or 0)
-    changes = diff(old_path, new_path, down_days_threshold=threshold)
+        backlink_threshold = int(os.getenv("BACKLINK_LOST_DAYS_THRESHOLD", "0") or 0)
+    changes = diff(old_path, new_path, backlink_lost_days_threshold=backlink_threshold)
     total = sum(len(v) for v in changes.values())
     if total == 0:
         logger.info("[alert] 两轮状态无变化，不推送")

@@ -58,7 +58,7 @@ class RefactorContractsTest(unittest.TestCase):
         self.assertIn('["first24", "前 24 条"]', html)
         link_config_start = html.index("links:", html.index("viewConfig"))
         link_config = html[link_config_start:html.index("articles:", link_config_start)]
-        self.assertIn('defaultFilter: "unreachable"', link_config)
+        self.assertIn('defaultFilter: "all"', link_config)
         expected_link_filters = [
             '["unreachable", "不可达"]',
             '["uncrawlable", "不可抓取"]',
@@ -895,6 +895,8 @@ class RefactorContractsTest(unittest.TestCase):
             "unreachable_days": None,
             "unreachable_since": "",
             "has_backlink": True,
+            "backlink_lost_days": None,
+            "backlink_lost_since": "",
             "updated": "",
             "stale_days": None,
         })

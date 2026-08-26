@@ -48,7 +48,7 @@ def test_diff_rules(tmp_path):
 def test_diff_no_baseline_silent(tmp_path):
     new = _write(tmp_path, "new.json", {"link_data": [{"name": "A站", "link": "https://a.com", "reachable": False}]})
     ch = notify.diff(str(tmp_path / "not_exist.json"), new)
-    assert ch == {"down": [], "backlink_lost": [], "recovered": []}
+    assert ch == {"down": [], "backlink_lost": [], "recovered": [], "sustained_down": [], "sustained_backlink_lost": []}
 
 
 def test_format_plain_no_markdown(tmp_path):

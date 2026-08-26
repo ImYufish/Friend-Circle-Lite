@@ -58,6 +58,10 @@ RAW_HEADERS = {
 class RetryBackoffPolicy:
     """Compute dynamic recheck windows for long-term failures."""
 
+    # 复探间隔变长的档位（天）。这些点同时作为「持续不可达」告警的触发点：
+    # 站点挂满 10/30/60 天时各提醒一次，告警节奏与系统实际复探节奏一致。
+    NOTIFY_TIERS = (10, 30, 60)
+
     @staticmethod
     def effective_max_age_hours(since: str, default_hours: int) -> int:
         days = calculate_elapsed_days(since)
@@ -185,15 +189,21 @@ class LinkReachabilityService:
         if record.reachable and self.config.enable_backlink_check and self.config.author_url and website.linkpage:
             record.backlink_checked = True
             record.has_author_link = self._check_author_link_in_page(session, website.linkpage)
+            if record.has_author_link:
+                record.backlink_lost_since = ""  # 反链恢复，清空起始时间
+            else:
+                record.backlink_lost_since = self._backlink_lost_since(cached, record.checked_at)
         elif not record.reachable:
             record.backlink_checked = bool(website.linkpage)
             record.has_author_link = False
+            record.backlink_lost_since = self._backlink_lost_since(cached, record.checked_at)
 
         # 人工核验反链（verified）：CF 等反爬站点 bot 抓不到，但站长已确认，强制采信
         if not record.has_author_link and record.verified:
             logging.info(f"[verified] {website.name} 已人工核验反链，强制记为有反链")
             record.backlink_checked = True
             record.has_author_link = True
+            record.backlink_lost_since = ""
 
         return record
 
@@ -425,6 +435,10 @@ class LinkReachabilityService:
             for website, record in items:
                 record.backlink_checked = True
                 record.has_author_link = self._check_author_link_in_page(session, website.linkpage)
+                if record.has_author_link:
+                    record.backlink_lost_since = ""
+                else:
+                    record.backlink_lost_since = self._backlink_lost_since(record, record.checked_at)
             self.store.save_records([record for _, record in items])
 
     def _build_failed_record(self, website: Website, cached: LinkCheckRecord | None) -> LinkCheckRecord:
@@ -439,6 +453,15 @@ class LinkReachabilityService:
         if cached and not cached.reachable and cached.unreachable_since:
             return cached.unreachable_since
         if cached and not cached.reachable and cached.checked_at:
+            return cached.checked_at
+        return checked_at
+
+    @staticmethod
+    def _backlink_lost_since(cached: LinkCheckRecord | None, checked_at: str) -> str:
+        """反链首次检测为丢失的时间；缓存命中且仍缺失时沿用旧值（跨 run 持久）。"""
+        if cached and cached.backlink_checked and not cached.has_author_link and cached.backlink_lost_since:
+            return cached.backlink_lost_since
+        if cached and cached.backlink_checked and not cached.has_author_link and cached.checked_at:
             return cached.checked_at
         return checked_at
 

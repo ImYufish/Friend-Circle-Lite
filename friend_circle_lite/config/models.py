@@ -179,9 +179,11 @@ class AlertSettings:
     qq_bot_alert_url: str = ""
     qq_bot_alert_token: str = ""
     wecom_webhook_url: str = ""
-    # 持续不可达天数阈值：站点已挂超过该天数才追加「持续离线」提醒（0=关闭该功能）。
-    # 仅在“本轮天数跨过阈值且上轮已处于不可达”时触发一次，避免每次巡检重复推送。
-    down_days_threshold: int = 0
+    # 反链持续缺失天数阈值：has_backlink 连续为 False 超过该天数才追加「反链长期缺失」
+    # 提醒（0=关闭该功能）。仅在“本轮天数跨过阈值且上轮已缺失”时触发一次，避免刷屏。
+    # 注意：持续不可达（站点挂掉）的提醒不在此配置——它跟随 link_checker 的
+    # RetryBackoffPolicy.NOTIFY_TIERS（挂满 10/30/60 天各提醒一次），与复探间隔变长点一致。
+    backlink_lost_days_threshold: int = 7
 
 
 @dataclass(slots=True)
@@ -323,7 +325,7 @@ class ApplicationConfig:
                     # 密钥类仅走环境变量，不提供 yaml 字段（同 SMTP_PWD 惯例）
                     qq_bot_alert_token=os.getenv("QQ_BOT_ALERT_TOKEN", "").strip(),
                     wecom_webhook_url=os.getenv("WECOM_WEBHOOK_URL") or str(alert_raw.get("wecom_webhook_url", "")).strip(),
-                    down_days_threshold=int(alert_raw.get("down_days_threshold", 0) or 0),
+                    backlink_lost_days_threshold=int(alert_raw.get("backlink_lost_days_threshold", 7) or 7),
                 ),
             ),
             specific_rss=list(data.get("specific_RSS", []) or []),

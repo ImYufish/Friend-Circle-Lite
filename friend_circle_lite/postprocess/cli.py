@@ -5,7 +5,8 @@
   1. merge-shot  : 用 page 分支 baseline 回填 siteshot（避免截图丢失）
   2. geo         : 对不可达站点做地域屏蔽二次诊断
   3. alert       : 与 baseline 对比状态翻轉并推送告警（QQ 机器人为主，企业微信兜底）；
-                    含「持续不可达 N 天」二次提醒（见 conf.yaml alert.down_days_threshold）
+                    含「持续不可达」提醒（跟随 link_checker 退避档位 10/30/60 天触发）
+                    与「反链长期缺失」提醒（见 conf.yaml alert.backlink_lost_days_threshold）
 
 各步骤的开关集中在 conf.yaml 的 postprocess 段（enable / 子项 enable）；
 环境变量仅用于敏感信息与 CI 场景的临时覆盖，语义与原生配置一致。

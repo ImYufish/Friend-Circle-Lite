@@ -178,6 +178,7 @@ class LinkCheckRecord:
     last_post_days_ago: int | None = None
     unreachable_since: str = ""
     rss_unavailable_since: str = ""
+    backlink_lost_since: str = ""
     direct: LinkMethodStatus = field(default_factory=LinkMethodStatus)
     proxy: LinkMethodStatus = field(default_factory=LinkMethodStatus)
     api: LinkMethodStatus = field(default_factory=LinkMethodStatus)
@@ -212,6 +213,8 @@ class LinkCheckRecord:
             "unreachable_days": self.unreachable_days,
             "rss_unavailable_since": self.rss_unavailable_since,
             "rss_unavailable_days": self.rss_unavailable_days,
+            "backlink_lost_since": self.backlink_lost_since,
+            "backlink_lost_days": self.backlink_lost_days,
             "verified": self.verified,
             "latency_cn": self.latency_cn,
             "latency_display": self.latency_display,
@@ -236,6 +239,13 @@ class LinkCheckRecord:
             return None
         return calculate_elapsed_days(self.rss_unavailable_since)
 
+    @property
+    def backlink_lost_days(self) -> int | None:
+        """Return rounded-up duration for continuous backlink absence."""
+        if not self.backlink_checked or self.has_author_link:
+            return None
+        return calculate_elapsed_days(self.backlink_lost_since)
+
     def to_link_dict(self) -> dict[str, object]:
         latency = normalize_latency(self.best_latency) if self.reachable else -1
         return {
@@ -254,6 +264,8 @@ class LinkCheckRecord:
             "unreachable_days": self.unreachable_days,
             "unreachable_since": self.unreachable_since if not self.reachable else "",
             "has_backlink": self.has_author_link if self.backlink_checked else None,
+            "backlink_lost_days": self.backlink_lost_days,
+            "backlink_lost_since": self.backlink_lost_since if (self.backlink_checked and not self.has_author_link) else "",
             "updated": self.last_post_published,
             "stale_days": self.last_post_days_ago,
         }
