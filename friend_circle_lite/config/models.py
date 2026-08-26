@@ -179,6 +179,9 @@ class AlertSettings:
     qq_bot_alert_url: str = ""
     qq_bot_alert_token: str = ""
     wecom_webhook_url: str = ""
+    # 持续不可达天数阈值：站点已挂超过该天数才追加「持续离线」提醒（0=关闭该功能）。
+    # 仅在“本轮天数跨过阈值且上轮已处于不可达”时触发一次，避免每次巡检重复推送。
+    down_days_threshold: int = 0
 
 
 @dataclass(slots=True)
@@ -320,6 +323,7 @@ class ApplicationConfig:
                     # 密钥类仅走环境变量，不提供 yaml 字段（同 SMTP_PWD 惯例）
                     qq_bot_alert_token=os.getenv("QQ_BOT_ALERT_TOKEN", "").strip(),
                     wecom_webhook_url=os.getenv("WECOM_WEBHOOK_URL") or str(alert_raw.get("wecom_webhook_url", "")).strip(),
+                    down_days_threshold=int(alert_raw.get("down_days_threshold", 0) or 0),
                 ),
             ),
             specific_rss=list(data.get("specific_RSS", []) or []),

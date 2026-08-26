@@ -4,7 +4,8 @@
 典型 workflow 顺序（主检测 job 内，run.py 之后）：
   1. merge-shot  : 用 page 分支 baseline 回填 siteshot（避免截图丢失）
   2. geo         : 对不可达站点做地域屏蔽二次诊断
-  3. alert       : 与 baseline 对比状态翻轉并推送告警（QQ 机器人为主，企业微信兜底）
+  3. alert       : 与 baseline 对比状态翻轉并推送告警（QQ 机器人为主，企业微信兜底）；
+                    含「持续不可达 N 天」二次提醒（见 conf.yaml alert.down_days_threshold）
 
 各步骤的开关集中在 conf.yaml 的 postprocess 段（enable / 子项 enable）；
 环境变量仅用于敏感信息与 CI 场景的临时覆盖，语义与原生配置一致。

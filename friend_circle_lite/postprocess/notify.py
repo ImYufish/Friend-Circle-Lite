@@ -4,6 +4,9 @@
 监控规则（verified 人工核验站点不因反链误报）：
 - 异常：reachable true→false；has_backlink true→false
 - 恢复：reachable false→true；has_backlink false→true（且本轮无其他异常）
+- 持续离线：站点已不可达，且 unreachable_days 跨过 down_days_threshold（默认 0=关闭）。
+  仅在「上轮已不可达、本轮天数刚跨过阈值」时触发一次，避免每次巡检重复推送，
+  也与「刚掉线」的异常提醒区分开。
 
 渠道优先级：
 1. QQ 单聊（主）：经 blog-bot Worker 中转 —— POST ``QQ_BOT_ALERT_URL``
@@ -21,6 +24,8 @@ import json
 import logging
 import os
 import re
+from datetime import datetime
+from math import ceil
 
 import requests
 
@@ -29,6 +34,24 @@ logger = logging.getLogger(__name__)
 
 def _norm(u: str) -> str:
     return re.sub(r"^https?://", "", (u or "").strip().lower()).rstrip("/")
+
+
+def _as_int(v) -> int | None:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def _elapsed_days(since: str | None) -> int | None:
+    """从 persisted 时间戳算「挂了几天」（向上取整，最少 1）。无值返回 None。"""
+    if not since:
+        return None
+    try:
+        dt = datetime.strptime(since, "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+    return max(1, ceil((datetime.now() - dt).total_seconds() / 86400))
 
 
 def _load_items(path: str) -> dict[str, dict]:
@@ -44,11 +67,11 @@ def _load_items(path: str) -> dict[str, dict]:
     return {_norm(it.get("link")): it for it in (data.get("link_data") or []) if it.get("link")}
 
 
-def diff(old_path: str, new_path: str) -> dict[str, list[dict]]:
-    """对比两轮结果，返回 {"down": [...], "backlink_lost": [...], "recovered": [...]}。"""
+def diff(old_path: str, new_path: str, down_days_threshold: int = 0) -> dict[str, list[dict]]:
+    """对比两轮结果，返回 {"down", "backlink_lost", "recovered", "sustained_down"}。"""
     old = _load_items(old_path)
     new = _load_items(new_path)
-    result: dict[str, list[dict]] = {"down": [], "backlink_lost": [], "recovered": []}
+    result: dict[str, list[dict]] = {"down": [], "backlink_lost": [], "recovered": [], "sustained_down": []}
     if not old:
         logger.info("[alert] 无上一轮 baseline（首轮），跳过告警")
         return result
@@ -74,6 +97,21 @@ def diff(old_path: str, new_path: str) -> dict[str, list[dict]]:
         elif not was_link and now_link:
             result["recovered"].append({"name": name, "link": cur.get("link", ""), "note": "反链重新检测到"})
 
+        # 持续不可达：仅当上轮已不可达、且本轮 unreachable_days 跨过阈值时触发一次。
+        # 不重复推送（每次巡检都报会刷屏），也不与「刚掉线」的 down 提醒重叠。
+        if down_days_threshold and not now_up:
+            cur_days = _as_int(cur.get("unreachable_days")) or _elapsed_days(cur.get("unreachable_since"))
+            prev_down = None
+            if prev is not None and not was_up:
+                prev_down = _as_int(prev.get("unreachable_days")) or _elapsed_days(prev.get("unreachable_since"))
+            if cur_days and cur_days >= down_days_threshold and (prev_down is None or prev_down < down_days_threshold):
+                result["sustained_down"].append({
+                    "name": name,
+                    "link": cur.get("link", ""),
+                    "days": cur_days,
+                    "note": f"已持续不可达 {cur_days} 天",
+                })
+
     return result
 
 
@@ -92,6 +130,10 @@ def format_markdown(changes: dict[str, list[dict]]) -> str:
         lines.append("**🟢 恢复正常**")
         for it in changes["recovered"]:
             lines.append(f"> [{it['name']}]({it['link']}) {it['note']}")
+    if changes["sustained_down"]:
+        lines.append("**⏰ 持续离线**")
+        for it in changes["sustained_down"]:
+            lines.append(f"> [{it['name']}]({it['link']}) {it['note']}")
     return "\n".join(lines)
 
 
@@ -109,6 +151,10 @@ def format_plain(changes: dict[str, list[dict]]) -> str:
     if changes["recovered"]:
         lines.append("🟢 恢复正常")
         for it in changes["recovered"]:
+            lines.append(f"· {it['name']} {it['link']} {it['note']}")
+    if changes["sustained_down"]:
+        lines.append("⏰ 持续离线")
+        for it in changes["sustained_down"]:
             lines.append(f"· {it['name']} {it['link']} {it['note']}")
     return "\n".join(lines)
 
@@ -149,7 +195,11 @@ def run(old_path: str, new_path: str, settings: object | None = None) -> bool:
     settings 为 conf.yaml 解析出的 AlertSettings（config.models.AlertSettings，
     duck-typing 引用避免循环导入）；未传时回退读环境变量（兼容旧调用方式）。
     """
-    changes = diff(old_path, new_path)
+    if settings is not None:
+        threshold = int(getattr(settings, "down_days_threshold", 0) or 0)
+    else:
+        threshold = int(os.getenv("DOWN_DAYS_THRESHOLD", "0") or 0)
+    changes = diff(old_path, new_path, down_days_threshold=threshold)
     total = sum(len(v) for v in changes.values())
     if total == 0:
         logger.info("[alert] 两轮状态无变化，不推送")
