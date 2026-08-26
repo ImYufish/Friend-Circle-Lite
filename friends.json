@@ -4,8 +4,8 @@
       "name": "临渊羡鱼",
       "link": "https://x1anyu.cn",
       "avatar": "https://x1anyu.cn/assets/images/avatar.png",
-      "linkpage": "",
-      "verified": false,
+      "linkpage": "https://x1anyu.cn/friends/",
+      "verified": true,
       "rss": "",
       "desc": "久有羡鱼意，不甘空望川. 躬身耕岁月，步步赴清澜",
       "tags": [
@@ -20,7 +20,7 @@
       "avatar": "https://weavatar.com/avatar/d252655d40d6874417a720bad0a6c5f77f8f6a1fd2f882f8f338402dc37e4190?s=640",
       "linkpage": "https://blog.cuteleaf.cn/friends/",
       "verified": true,
-      "rss": "",
+      "rss": "https://blog.cuteleaf.cn/rss.xml",
       "desc": "飞萤之火自无梦的长夜亮起，绽放在终竟的明天。",
       "tags": [
         "Blog"

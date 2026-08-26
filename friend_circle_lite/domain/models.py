@@ -80,6 +80,7 @@ class Website:
     avatar: str = ""
     linkpage: str = ""
     verified: bool = False
+    rss: str = ""
 
     def __post_init__(self) -> None:
         self.url = normalize_homepage_url(self.url)
@@ -117,6 +118,7 @@ class Website:
                 avatar=str(_pick("avatar", "imgurl") or "").strip(),
                 linkpage=str(_pick("linkpage") or "").strip(),
                 verified=bool(_pick("verified")),
+                rss=str(_pick("rss") or "").strip(),
             )
 
         name = raw_friend[0]
@@ -127,7 +129,7 @@ class Website:
         else:
             linkpage = ""
             avatar = raw_friend[2] if len(raw_friend) > 2 else ""
-        return cls(name=str(name).strip(), url=normalize_homepage_url(url), avatar=str(avatar or "").strip(), linkpage=str(linkpage or "").strip(), verified=False)
+        return cls(name=str(name).strip(), url=normalize_homepage_url(url), avatar=str(avatar or "").strip(), linkpage=str(linkpage or "").strip(), verified=False, rss="")
 
     def to_error_payload(self) -> list[str]:
         """Return the legacy structure used by `errors.json`."""

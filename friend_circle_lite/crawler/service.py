@@ -140,6 +140,13 @@ class FriendCircleCrawlService:
 
         cache_records = self.cache_store.load_records()
         manual_records = self._build_manual_records()
+        # 友链文件（friends.json）里手填的 rss 视为手动覆盖：优先于自动发现使用，
+        # 且不被缓存回写（自动发现结果）覆盖或删除。
+        manual_records = manual_records + [
+            CacheRecord(name=w.name, url=w.rss, source="manual")
+            for w in websites
+            if getattr(w, "rss", "")
+        ]
         merged_records = self._merge_feed_records(cache_records, manual_records)
         manual_names = {record.name for record in manual_records}
 
