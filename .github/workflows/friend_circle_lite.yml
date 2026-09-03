@@ -83,6 +83,7 @@ jobs:
         PROXY_URL: ${{ secrets.PROXY_URL }}
         EO_PING_URL: ${{ secrets.EO_PING_URL }}
         FCL_REPO: ${{ github.repository }}
+        FCL_CONFIG_OVERRIDES: ${{ vars.FCL_CONFIG_OVERRIDES }}
       run: |
         echo "开始抓取 RSS 文章..."
         python run.py
@@ -96,6 +97,7 @@ jobs:
         WECOM_WEBHOOK_URL: ${{ secrets.WECOM_WEBHOOK_URL }}
         LINK_BASELINE: ./link.baseline.json
         LINK_CURRENT: ./link.json
+        FCL_CONFIG_OVERRIDES: ${{ vars.FCL_CONFIG_OVERRIDES }}
       run: |
         python -m friend_circle_lite.postprocess all
 
@@ -190,6 +192,8 @@ jobs:
         git config --global user.email 'github-actions[bot]@users.noreply.github.com'
 
     - name: 组装静态发布目录
+      env:
+        FCL_CONFIG_OVERRIDES: ${{ vars.FCL_CONFIG_OVERRIDES }}
       run: |
         mkdir pages
         cp -r main ./static/edgeone.json ./static/_headers ./static/index.html ./static/readme.md ./static/favicon.ico ./static/bg-light.webp ./static/bg-dark.webp all.json link.json errors.json pages/
@@ -263,6 +267,7 @@ jobs:
           IMG_AUTH_CODE: ${{ secrets.IMG_AUTH_CODE }}
           LINK_CURRENT: ./link.json
           TARGET_LINK: ${{ github.event.inputs.target_link }}
+          FCL_CONFIG_OVERRIDES: ${{ vars.FCL_CONFIG_OVERRIDES }}
         run: |
           echo "开始增量截图..."
           python -m friend_circle_lite.screenshots.runner

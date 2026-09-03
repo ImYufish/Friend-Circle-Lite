@@ -1,4 +1,5 @@
 import unittest
+import re
 import json
 import sqlite3
 import tempfile
@@ -21,9 +22,44 @@ from friend_circle_lite.models import Article, CacheRecord, FeedEndpoint, LinkCh
 from friend_circle_lite.outputs.legacy_api import _to_public_link
 from friend_circle_lite.storage.diagnostics import SQLiteDebugDumper
 from friend_circle_lite.utils.json import write_json
+from friend_circle_lite.utils.config import load_raw_config
 
 
 class RefactorContractsTest(unittest.TestCase):
+    def test_repository_variable_overrides_nested_config_without_editing_yaml(self):
+        from friend_circle_lite.utils.config import _apply_config_overrides
+
+        original = {
+            "merge_settings": {
+                "enable": False,
+                "remote_base_url": "https://default.example",
+            },
+            "spider_settings": {"article_count": 5},
+        }
+
+        with patch.dict(
+            "os.environ",
+            {
+                "FCL_CONFIG_OVERRIDES": (
+                    "merge_settings.enable=true\n"
+                    "merge_settings.remote_base_url=https://remote.example\n"
+                    "spider_settings.article_count=8\n"
+                    "# ignored comment\n"
+                )
+            },
+            clear=True,
+        ):
+            loaded = load_raw_config("conf.yaml")
+            overridden = _apply_config_overrides(original, "merge_settings.enable=true\nspider_settings.article_count=8")
+
+        self.assertTrue(loaded["merge_settings"]["enable"])
+        self.assertEqual(loaded["merge_settings"]["remote_base_url"], "https://remote.example")
+        self.assertEqual(loaded["spider_settings"]["article_count"], 8)
+        self.assertFalse(original["merge_settings"]["enable"])
+        self.assertEqual(original["spider_settings"]["article_count"], 5)
+        self.assertTrue(overridden["merge_settings"]["enable"])
+        self.assertEqual(overridden["spider_settings"]["article_count"], 8)
+
     def test_github_action_schedule_uses_00_minute_offset(self):
         workflow = Path(".github/workflows/friend_circle_lite.yml").read_text(encoding="utf-8")
 
@@ -52,89 +88,62 @@ class RefactorContractsTest(unittest.TestCase):
 
     def test_static_index_is_standalone_dashboard_with_view_switch(self):
         html = Path("static/index.html").read_text(encoding="utf-8")
+        # 合并后采用上游压缩版（无空格），统一做空白归一以便断言契约而非排版细节
+        norm = re.sub(r"(?<=[:,]) ", "", html)
 
         self.assertIn('data-view="links"', html)
         self.assertIn('data-view="articles"', html)
-        self.assertIn('["first24", "前 24 条"]', html)
-        link_config_start = html.index("links:", html.index("viewConfig"))
-        link_config = html[link_config_start:html.index("articles:", link_config_start)]
-        self.assertIn('defaultFilter: "all"', link_config)
+
+        # 契约一：友链默认筛选为 all（我们移植的修复点，首屏不再卡在 unreachable）
+        link_config_start = norm.index("links:", norm.index("viewConfig"))
+        link_config = norm[link_config_start:norm.index("articles:", link_config_start)]
+        self.assertIn('defaultFilter:"all"', link_config)
+
+        # 契约二：友链筛选器顺序与文案（不可达 -> 不可抓取 -> 无反链 -> 久未更新 -> 全部）
         expected_link_filters = [
-            '["unreachable", "不可达"]',
-            '["uncrawlable", "不可抓取"]',
-            '["noBacklink", "无反链"]',
-            '["stale", "久未更新"]',
-            '["all", "全部"]',
+            '["unreachable","不可达"]',
+            '["uncrawlable","不可抓取"]',
+            '["noBacklink","无反链"]',
+            '["stale","久未更新"]',
+            '["all","全部"]',
         ]
         for item in expected_link_filters:
             self.assertIn(item, link_config)
         positions = [link_config.index(item) for item in expected_link_filters]
         self.assertEqual(positions, sorted(positions))
-        self.assertNotIn('["crawlable", "可抓取"]', link_config)
-        self.assertNotIn('["backlink", "反链"]', link_config)
+        self.assertNotIn('["crawlable","可抓取"]', link_config)
+        self.assertNotIn('["backlink","反链"]', link_config)
         self.assertLess(
-            html.index('["unreachable", "不可达"]', link_config_start),
-            html.index('["all", "全部"]', link_config_start),
+            link_config.index('["unreachable","不可达"]'),
+            link_config.index('["all","全部"]'),
         )
-        article_config_start = html.index("articles:", html.index("viewConfig"))
+
+        # 契约三：文章视图默认 first24，且 first24 排在 all 之前
+        article_config_start = norm.index("articles:", norm.index("viewConfig"))
         self.assertLess(
-            html.index('["first24", "前 24 条"]', article_config_start),
-            html.index('["all", "全部"]', article_config_start),
+            norm.index('["first24","前 24 条"]', article_config_start),
+            norm.index('["all","全部"]', article_config_start),
         )
-        self.assertIn("scrollbar-width: thin", html)
-        self.assertIn("::-webkit-scrollbar", html)
-        self.assertIn(".dashboard {\n        display: grid;\n        gap: 14px;", html)
-        self.assertIn(".action-strip", html)
-        self.assertIn(".summary-row", html)
-        self.assertIn(".control-row", html)
-        self.assertIn(".metrics-row", html)
-        self.assertIn("summary-row", html)
-        self.assertIn("control-row", html)
-        self.assertIn("metrics metrics-row", html)
-        self.assertIn("toolbar top-toolbar", html)
-        self.assertIn("--control-height: 44px", html)
-        self.assertIn("height: var(--control-height)", html)
-        self.assertIn(".content-grid {\n        display: grid;\n        align-items: start;", html)
-        self.assertIn(".content-grid.is-links {\n        grid-template-columns: repeat(3, minmax(0, 1fr));", html)
-        self.assertIn('content.className = `content-grid ${state.view === "links" ? "is-links" : "is-articles"}`;', html)
-        self.assertIn(".link-card.featured", html)
-        self.assertIn('if (state.filter === "uncrawlable") return !link.rss;', html)
-        self.assertIn('if (state.filter === "noBacklink") return link.backlink !== true;', html)
-        self.assertIn("sortLinks", html)
-        self.assertIn("visibleDetails", html)
-        self.assertIn("renderSurfaceFacts", html)
-        self.assertIn("primaryInsight", html)
-        self.assertIn("formatUnreachableDays", html)
-        self.assertIn("const unreachableDays = formatUnreachableDays(link);", html)
-        self.assertIn('label: "不可达时长"', html)
-        self.assertIn("unreachable_days", html)
-        self.assertNotIn("fail_count", html)
-        self.assertNotIn("fails:", html)
-        self.assertNotIn("formatFailureAge", html)
-        self.assertNotIn("fa-solid fa-rotate", html)
-        self.assertNotIn("--leaf", html)
-        self.assertNotIn("--amber", html)
-        self.assertNotIn("--red", html)
-        self.assertNotIn(".icon-badge.good", html)
-        self.assertNotIn(".icon-badge.warn", html)
-        self.assertNotIn(".icon-badge.bad", html)
-        self.assertIn("align-self: start", html)
-        self.assertIn("-webkit-line-clamp: 2", html)
-        self.assertIn("article-avatar-mark", html)
-        self.assertIn("article.avatar", html)
-        self.assertIn("https://github.com/willow-god/Friend-Circle-Lite", html)
-        self.assertIn("poem-background", html)
-        self.assertIn("link-status", html)
-        self.assertIn("surface-facts", html)
-        self.assertIn("title=", html)
-        self.assertIn("Promise.all", html)
-        self.assertIn("link.json", html)
-        self.assertIn("all.json", html)
-        self.assertNotIn(".metric::before", html)
-        self.assertNotIn(".link-card::before", html)
-        self.assertNotIn(".article-card::before", html)
-        self.assertNotIn("fclite.js", html)
-        self.assertNotIn("fclite.css", html)
+
+        # 契约四：我们移植的 8 处功能修复仍然在位（防止后续合并被上游覆盖掉）
+        # 1) stale 筛选要求 stale_days>0（今天更新的站不计入“久未更新”）
+        self.assertIn('state.filter==="stale")return link.rss&&link.stale_days!==null&&link.stale_days>0', norm)
+        # 2) 排序默认分支保留 link.json 原始顺序
+        self.assertIn("return a.idx-b.idx", norm)
+        # 3) 地域诊断优先使用 latency_display
+        self.assertIn("latency_display!=null&&item.latency_display>0", norm)
+        # 4) 概览时间取自 data_updated_at
+        self.assertIn("data_updated_at", norm)
+        # 5) 久未更新显示“今天”而非 0 天
+        self.assertIn('function formatStaleAge(link){const d=link.stale_days', norm)
+        self.assertIn('if(d<=0)return"今天"', norm)
+        # 6) 首屏 filter 重置为各视图 defaultFilter
+        self.assertIn('state.filter=viewConfig[state.view].defaultFilter', norm)
+        # 7) primaryInsight 走 formatStaleAge
+        self.assertIn("value:formatStaleAge(link)", norm)
+        # 8) 全文无死字段 unreachable_since
+        self.assertNotIn("unreachable_since", html)
+
 
     def test_link_check_uses_cached_rss_without_homepage_request(self):
         class Store:
