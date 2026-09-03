@@ -553,6 +553,59 @@ class RefactorContractsTest(unittest.TestCase):
         self.assertTrue(records[0].has_author_link)
         self.assertEqual(records[0].linkpage, "https://site.example/new-links/")
 
+    def test_unreachable_run_preserves_cached_backlink_status(self):
+        # 站点偶发不可达时，不应把 has_author_link 强置 False，否则恢复时会
+        # 误报「反链重新检测到」且丢失对应的「反链丢失」提醒（backlink_lost 仅在可达时触发）。
+        class Store:
+            def load_records(self, urls):
+                return {
+                    "https://site.example/": LinkCheckRecord(
+                        name="Site",
+                        url="https://site.example/",
+                        linkpage="https://site.example/links/",
+                        checked_at="2020-01-01 00:00:00",  # 强制本轮回检
+                        reachable=True,
+                        crawl_allowed=False,
+                        best_method="homepage",
+                        best_latency=0.2,
+                        backlink_checked=True,
+                        has_author_link=True,
+                        backlink_lost_since="",
+                    )
+                }
+
+            def save_records(self, records):
+                return True
+
+            def is_fresh(self, record, max_age_hours):
+                return False  # 强制本轮回检
+
+        class Fetcher:
+            def get(self, url, *args, **kwargs):
+                return type("Result", (), {"response": None, "success": False, "latency": 0.0})()
+
+        service = LinkReachabilityService(
+            config=ApplicationConfig.from_dict({
+                "link_check": {
+                    "enable_backlink_check": True,
+                    "author_url": "x1anyu.cn",
+                }
+            }).link_check,
+            proxy_settings=ProxySettings(),
+            store=Store(),
+            fetcher=Fetcher(),
+        )
+
+        records = service.check_websites([
+            Website(name="Site", url="https://site.example/", linkpage="https://site.example/links/")
+        ])
+
+        self.assertFalse(records[0].reachable)
+        # 不可达仍沿用上一轮缓存：有反链保持 True，不制造 False->True 误报
+        self.assertTrue(records[0].has_author_link)
+        self.assertTrue(records[0].backlink_checked)
+        self.assertEqual(records[0].backlink_lost_since, "")
+
     def test_link_check_revalidates_legacy_crawlable_cache_without_rss_method(self):
         class Store:
             def load_records(self, urls):

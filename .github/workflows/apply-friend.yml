@@ -202,6 +202,7 @@ jobs:
           VERIFY_RESULT: verify_result.json
 
       - name: 应用结果（写入 / 拒收）
+        id: apply
         if: steps.parse.outputs.shouldVerify == 'true'
         uses: actions/github-script@v7
         env:
@@ -213,6 +214,7 @@ jobs:
             const issue_number = context.issue.number;
             const input = JSON.parse(fs.readFileSync('verify_input.json', 'utf8'));
             const result = JSON.parse(fs.readFileSync('verify_result.json', 'utf8'));
+            core.setOutput('passed', result.pass === true);
             const finalSiteurl = input.siteurl;
             const linkpage = input.linkpage;
             const title = input.title;
@@ -311,7 +313,8 @@ jobs:
 
       - name: 触发主检测工作流
         # friends.json 变更后立即跑一轮检测/朋友圈抓取，不必等下一个 cron 周期
-        if: steps.parse.outputs.shouldVerify == 'true'
+        # 仅核验通过（站点已写回 friends.json）才触发；核验失败站点未进清单，触发也是白跑
+        if: steps.parse.outputs.shouldVerify == 'true' && steps.apply.outputs.passed == 'true'
         run: |
           gh workflow run "Friend Circle Lite" --repo "${{ github.repository }}" --ref main
         env:

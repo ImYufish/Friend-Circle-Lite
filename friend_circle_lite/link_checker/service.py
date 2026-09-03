@@ -194,9 +194,18 @@ class LinkReachabilityService:
             else:
                 record.backlink_lost_since = self._backlink_lost_since(cached, record.checked_at)
         elif not record.reachable:
-            record.backlink_checked = bool(website.linkpage)
-            record.has_author_link = False
-            record.backlink_lost_since = self._backlink_lost_since(cached, record.checked_at)
+            # 站点不可达：本轮回链检测无法进行，不应据此判定「无反链」，
+            # 否则恢复时会误报「反链重新检测到」，且丢失对应的「反链丢失」提醒
+            # （backlink_lost 仅在站点可达时触发）。沿用上一轮缓存值，保持状态连续；
+            # 不可达期间不推进「反链丢失」计时（无法确认是否真丢失）。
+            if cached is not None and cached.backlink_checked:
+                record.backlink_checked = True
+                record.has_author_link = cached.has_author_link
+                record.backlink_lost_since = cached.backlink_lost_since
+            else:
+                record.backlink_checked = bool(website.linkpage)
+                record.has_author_link = False
+                record.backlink_lost_since = self._backlink_lost_since(cached, record.checked_at)
 
         # 人工核验反链（verified）：CF 等反爬站点 bot 抓不到，但站长已确认，强制采信
         if not record.has_author_link and record.verified:
