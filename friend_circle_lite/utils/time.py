@@ -36,7 +36,10 @@ def format_published_time(time_str):
             return ''
 
     # 处理时区转换
+    # 无时区偏移的时间：RSS 规范下应按发布站本地时间解释。本站友链以中文博客为主，
+    # 其本地时间即北京时间(+8)；若仍按 UTC 解释会被再多 +8，导致显示时间比真实
+    # 发布时间早 8 小时。故无偏移时直接按 +8 解释，与最终展示时区一致（astimezone(+8) 后不变）。
     if parsed_time.tzinfo is None:
-        parsed_time = parsed_time.replace(tzinfo=timezone.utc)
+        parsed_time = parsed_time.replace(tzinfo=timezone(timedelta(hours=8)))
     shanghai_time = parsed_time.astimezone(timezone(timedelta(hours=8)))
     return shanghai_time.strftime('%Y-%m-%d %H:%M')
