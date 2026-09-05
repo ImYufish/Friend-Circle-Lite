@@ -241,7 +241,10 @@ jobs:
           python-version: '3.12'
 
       - name: 安装截图依赖
-        run: pip install requests selenium webdriver-manager
+        # requests/selenium/webdriver-manager 是 Selenium 截图必需；
+        # pyyaml 用于读取 conf.yaml 的 postprocess.siteshot 配置（并发数/图龄刷新/图床目录）。
+        # 缺失时 runner.py 会回退内置默认且不读 FCL_CONFIG_OVERRIDES，故必须装。
+        run: pip install requests selenium webdriver-manager pyyaml==6.0.1
 
       - name: 安装 Chrome
         uses: browser-actions/setup-chrome@v2
