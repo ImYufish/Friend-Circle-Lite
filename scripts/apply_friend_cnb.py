@@ -321,6 +321,48 @@ def norm_link(u: str) -> str:
     return (u or "").strip().lower().replace("https://", "").replace("http://", "").rstrip("/")
 
 
+def _dump_friends_json(obj) -> str:
+    """序列化友链数据为 JSON：对象正常缩进，但纯标量短数组（如 tags）收成单行。
+
+    标准库 json.dump(indent=2) 会把每个数组元素拆到独立一行，导致 "tags": ["Blog"]
+    变成三行。这里用自定义递归排版，仅当数组内全是标量且紧凑形式不超过 70 字符时才
+    内联成 ["Blog"]，其余结构仍按 2 空格缩进，保证 friends.json 可读且 diff 干净。
+    """
+
+    def _scalar(v: object) -> str:
+        if isinstance(v, bool):
+            return "true" if v else "false"
+        if v is None:
+            return "null"
+        return json.dumps(v, ensure_ascii=False)
+
+    def _is_scalar(v: object) -> bool:
+        return isinstance(v, (str, int, float, bool)) or v is None
+
+    def _fmt(v: object, level: int) -> str:
+        pad = "  " * level
+        pad_in = "  " * (level + 1)
+        if isinstance(v, dict):
+            if not v:
+                return "{}"
+            parts = [
+                f"{pad_in}{json.dumps(k, ensure_ascii=False)}: {_fmt(val, level + 1)}"
+                for k, val in v.items()
+            ]
+            return "{\n" + ",\n".join(parts) + "\n" + pad + "}"
+        if isinstance(v, list):
+            if not v:
+                return "[]"
+            inline = "[" + ", ".join(_scalar(x) for x in v) + "]"
+            if all(_is_scalar(x) for x in v) and len(inline) <= 70:
+                return inline
+            parts = [pad_in + _fmt(x, level + 1) for x in v]
+            return "[\n" + ",\n".join(parts) + "\n" + pad + "]"
+        return _scalar(v)
+
+    return _fmt(obj, 0)
+
+
 def upsert_friend(title, siteurl, imgurl, desc, linkpage, issue_id, reverify: bool) -> str:
     """返回动作说明（新增/更新），并就地更新 friends.json。"""
     with open("friends.json", encoding="utf-8") as f:
@@ -363,7 +405,7 @@ def upsert_friend(title, siteurl, imgurl, desc, linkpage, issue_id, reverify: bo
     data["updatedAt"] = now.strftime("%Y-%m-%d")
 
     with open("friends.json", "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+        f.write(_dump_friends_json(data))
         f.write("\n")
     return action
 
