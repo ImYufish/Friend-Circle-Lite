@@ -277,6 +277,20 @@
       "weight": 5,
       "enabled": true,
       "linkpage": "https://linlog.top/friends"
+    },
+    {
+      "name": "星宇安全实验室",
+      "avatar": "https://bk.zhaozhiqiang.pw/wp-content/uploads/2026/07/1784847314130_148x148.png",
+      "desc": "星宇安全实验室，专注网络安全技术分享，记录团队实战经历、安全研究与编程成长笔记，致力于分享网安学习干货.",
+      "link": "https://bk.zhaozhiqiang.pw/",
+      "linkpage": "https://bk.zhaozhiqiang.pw/friendship-links/",
+      "rss": "",
+      "tags": [
+        "Blog"
+      ],
+      "weight": 5,
+      "enabled": true,
+      "verified": false
     }
   ],
   "version": 1,
