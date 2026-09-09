@@ -42,6 +42,7 @@ EVENT = os.getenv("CNB_EVENT", "")
 IID = os.getenv("CNB_ISSUE_IID", "")
 
 TITLE_PREFIX = "[友链申请]"
+TITLE_PREFIX_EDIT = "[友链修改]"
 LABEL_RETRY = "待更新"
 UA = "Mozilla/5.0 (compatible; FriendLinkBot/1.0)"
 TIMEOUT = 15
@@ -141,6 +142,7 @@ FIELDS = {
     "linkpage": ("友链页面 URL", "友链页面URL", "友链页面"),
     "desc": ("网站描述",),
     "imgurl": ("网站头像 URL", "网站头像URL", "网站头像"),
+    "tags": ("标签", "tags", "Tags"),
 }
 
 
@@ -410,6 +412,50 @@ def upsert_friend(title, siteurl, imgurl, desc, linkpage, issue_id, reverify: bo
     return action
 
 
+def parse_tags(raw: str):
+    """表单「标签：Blog, 技术, 生活」→ ["Blog","技术","生活"]；字段缺失返回 None（不改）。"""
+    s = (raw or "").strip()
+    if not s:
+        return None
+    parts = re.split(r"[,，、\s]+", s)
+    out = [p.strip() for p in parts if p.strip()]
+    return out or None
+
+
+def modify_friend(siteurl, title, imgurl, desc, linkpage, tags, issue_id) -> str:
+    """按 link 定位已存在友链，强制覆盖提供的字段；未提供则保留原值。
+
+    与 upsert_friend 的「仅填空字段」语义相反：修改通道下，申请人在表单里填了的
+    字段就覆盖原值，留空则不动。tags 传 None 表示不改标签，传空数组 [] 表示清空。
+    返回 'updated' / 'not-found'。
+    """
+    with open("friends.json", encoding="utf-8") as f:
+        data = json.load(f)
+    friends = data.setdefault("friends", [])
+    entry = next((x for x in friends if norm_link(x.get("link")) == norm_link(siteurl)), None)
+    if entry is None:
+        return "not-found"
+    if title:
+        entry["name"] = title
+    if imgurl:
+        entry["avatar"] = imgurl
+    if desc:
+        entry["desc"] = desc
+    if linkpage:
+        entry["linkpage"] = linkpage
+    if tags is not None:
+        entry["tags"] = tags
+    entry["issue_id"] = issue_id
+    entry["enabled"] = True
+    data["version"] = data.get("version", 1)
+    now = datetime.now(timezone(timedelta(hours=8)))
+    data["updatedAt"] = now.strftime("%Y-%m-%d")
+    with open("friends.json", "w", encoding="utf-8") as f:
+        f.write(_dump_friends_json(data))
+        f.write("\n")
+    return "updated"
+
+
 def git_push_main(title: str) -> None:
     subprocess.run(["git", "config", "user.name", "cnb-bot"], check=True)
     subprocess.run(["git", "config", "user.email", "cnb-bot@cnb.cool"], check=True)
@@ -437,16 +483,16 @@ def main() -> int:
 
     issue = get_issue()
     title_full = issue.get("title") or os.getenv("CNB_ISSUE_TITLE", "")
-    if not title_full.strip().startswith(TITLE_PREFIX):
-        log.info("非友链申请议题，忽略")
+    if not (title_full.strip().startswith(TITLE_PREFIX) or title_full.strip().startswith(TITLE_PREFIX_EDIT)):
+        log.info("非友链申请/修改议题，忽略")
         return 0
 
     # remote 模式：真源在外部博客端点，FCL 不再维护本地 friends.json，
     # 自助申请（Issue）整套关闭——直接告知并关闭议题，不做任何验证/写回。
     if source == "remote":
         comment_issue(
-            "⛔ 本仓库 **友链自助申请功能已关闭**（spider_settings.source=remote，友链真源在外部博客友链端点）。\n\n"
-            "如需添加友链，请直接在你的博客仓库本地修改友链配置文件并提交（参考部署文档「在博客本地仓库申请友链」一节），"
+            "⛔ 本仓库 **友链自助申请/修改功能已关闭**（spider_settings.source=remote，友链真源在外部博客友链端点）。\n\n"
+            "如需添加或修改友链，请直接在你的博客仓库本地修改友链配置文件并提交（参考部署文档「在博客本地仓库申请友链」一节），"
             "FCL 会自动从博客端点读取并巡检。"
         )
         close_issue()
@@ -472,6 +518,60 @@ def main() -> int:
 
     body = issue.get("body") or ""
     fields = parse_body(body)
+    is_modify = title_full.strip().startswith(TITLE_PREFIX_EDIT)
+
+    if is_modify:
+        # ---------- 修改通道：按 link 定位已存在友链，强制覆盖提供字段 ----------
+        siteurl = fields["siteurl"]
+        if not siteurl:
+            comment_issue("⚠️ 请提供「网站链接」用于定位要修改的友链（表单里的「网站链接」字段）。")
+            return 0
+        if not re.match(r"^https?://", siteurl, re.I):
+            siteurl = "https://" + siteurl.lstrip("/")
+        target = fields["linkpage"] or siteurl
+        if not target_is_safe(target):
+            comment_issue("⚠️ 友链地址不合法或指向内网/保留地址，已拒绝访问（安全策略）。")
+            return 0
+        author_url = load_author_url()
+        log.info("修改核验 %s（反链目标 %s）", target, author_url)
+        result = verify(target, author_url)
+        if not result["pass"]:
+            reason = result.get("reason") or "验证未通过"
+            comment_issue(
+                f"⚠️ **验证未通过**：{reason}。\n\n请修复后在本议题下回复任意内容即可重新验证（议题保持开放）。"
+            )
+            try:
+                add_label(LABEL_RETRY)
+            except Exception as e:  # noqa: BLE001
+                log.warning("打标签失败：%s", e)
+            return 0
+        action = modify_friend(
+            siteurl, fields["title"], fields["imgurl"], fields["desc"],
+            fields["linkpage"], parse_tags(fields["tags"]),
+            int(IID) if IID.isdigit() else IID,
+        )
+        if action == "not-found":
+            comment_issue(
+                "ℹ️ 未找到该友链（按「网站链接」匹配 friends.json 失败）。"
+                "若要从头添加请使用 `[友链申请]` 标题重新提交。"
+            )
+            return 0
+        git_push_main(fields["title"] or siteurl)
+        try:
+            if LABEL_RETRY in get_labels(get_issue()):
+                remove_label(LABEL_RETRY)
+        except Exception as e:  # noqa: BLE001
+            log.warning("移除标签失败（不影响结果）：%s", e)
+        comment_issue(
+            "✅ 友链信息已更新（引擎：" + result["engine"] + "）。\n\n"
+            "可改字段：网站名称 / 网站链接 / 网站头像 / 网站描述 / 友链页面 / 标签（留空表示不改）。"
+            "friends.json 已写回，主检测流程即将自动运行生成最新数据。"
+        )
+        close_issue()
+        log.info("修改处理完成：%s", siteurl)
+        return 0
+
+    # ---------- 申请通道（原有逻辑） ----------
     missing = [
         name
         for key, name in zip(
@@ -544,7 +644,7 @@ def main() -> int:
         f"**{fields['title']}**（{siteurl}）。\n\nfriends.json 已更新，主检测流程即将自动运行生成最新数据。"
     )
     close_issue()
-    log.info("申请处理完成：%s", fields["title"])
+    log.info("申请处理处理完成：%s", fields["title"])
     return 0
 
 

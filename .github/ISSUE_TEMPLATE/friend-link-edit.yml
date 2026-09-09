@@ -1,0 +1,52 @@
+name: 友链修改
+description: 修改已交换友链的信息（按「网站链接」定位，填了的字段覆盖原值、留空保留）
+title: "[友链修改] "
+labels: ["友链修改"]
+body:
+  - type: input
+    id: site_url
+    attributes:
+      label: 网站链接
+      description: 你的站点首页 URL，必须与友链清单中已存在的链接一致（用于定位要修改的条目）
+    validations:
+      required: true
+  - type: input
+    id: site_name
+    attributes:
+      label: 网站名称
+      description: 留空表示不改；填写则覆盖原名称
+    validations:
+      required: false
+  - type: input
+    id: link_page
+    attributes:
+      label: 友链页面 URL
+      description: 留空表示不改；填写则覆盖（用于核验反链的页面地址）
+    validations:
+      required: false
+  - type: input
+    id: site_desc
+    attributes:
+      label: 网站描述
+      description: 留空表示不改；填写则覆盖原描述
+    validations:
+      required: false
+  - type: input
+    id: avatar_url
+    attributes:
+      label: 网站头像 URL
+      description: 留空表示不改；填写则覆盖原头像
+    validations:
+      required: false
+  - type: input
+    id: tags
+    attributes:
+      label: 标签
+      description: 逗号 / 空格 / 顿号分隔，例如 Blog, 技术, 生活；留空表示不改标签
+    validations:
+      required: false
+  - type: markdown
+    attributes:
+      value: |
+        > 提交后机器人会按「网站链接」定位已有友链，重新核验站点可访问性与指向本站的真实反链。
+        > 两项均通过才会更新友链清单（你填写的字段覆盖原值，留空保留）；未通过会在此 Issue 评论原因并打 `待更新` 标签，修复后回复任意内容即可重新验证。
