@@ -238,9 +238,27 @@ def contains_author_link(html: str, author_url: str) -> bool:
     for c in candidates:
         expanded += ["https://" + x for x in re.findall(r"https?://([^/?#\s\"'>]+)", c)]
         expanded += ["//" + x for x in re.findall(r"(?<!:)//([^/?#\s\"'>]+)", c)]
-    for u in expanded:
+    # 解码 href 中可能 base64 包裹的真实目标（WordPress 网址导航 ?golink= 等中转链接）
+    # 这类友链 href 指向申请人自己的域名（如 ?golink=<base64>），真实目标藏在参数里
+    import base64
+
+    for c in candidates:
+        decodable = c.replace("%3D", "=").replace("%2B", "+").replace("%2F", "/")
+        for tok in re.findall(r"[A-Za-z0-9+/]{8,}={0,2}", decodable):
+            try:
+                dec = base64.b64decode(tok).decode("utf-8", "ignore")
+                if re.search(r"https?://", dec, re.I):
+                    expanded.append(dec)
+            except Exception:  # noqa: BLE001
+                pass
+
+    def host_ok(u: str) -> bool:
         host = re.sub(r"^https?://", "", u, flags=re.I).lstrip("/").split("/")[0].lower()
-        if host in variants:
+        # 精确匹配或同注册域的子域名（blog.x1anyu.cn 也算指向本站）
+        return host in variants or host.endswith("." + bare)
+
+    for u in expanded:
+        if host_ok(u):
             return True
     return False
 

@@ -82,9 +82,24 @@ function containsAuthorLink(html, authorUrl) {
     for (const inner of c.matchAll(/https?:\/\/([^/?#\s"'>]+)/g)) expanded.push("https://" + inner[1]);
     for (const inner of c.matchAll(/(?<!:)\/\/([^/?#\s"'>]+)/g)) expanded.push("//" + inner[1]);
   }
-  for (const u of expanded) {
+  // 解码 href 中可能 base64 包裹的真实目标（WordPress 网址导航 ?golink= 等中转链接）
+  // 这类友链 href 指向申请人自己的域名（如 ?golink=<base64>），真实目标藏在参数里
+  for (const c of candidates) {
+    const decodable = c.replace(/%3D/gi, "=").replace(/%2B/gi, "+").replace(/%2F/gi, "/");
+    for (const tok of decodable.matchAll(/[A-Za-z0-9+/]{8,}={0,2}/g)) {
+      try {
+        const dec = Buffer.from(tok[0], "base64").toString("utf8");
+        if (/https?:\/\//i.test(dec)) expanded.push(dec);
+      } catch {}
+    }
+  }
+  const hostOk = (u) => {
     const host = u.replace(/^https?:\/\//i, "").replace(/^\/\//, "").split("/")[0].toLowerCase();
-    if (variants.has(host)) return true;
+    // 精确匹配或同注册域的子域名（blog.x1anyu.cn 也算指向本站）
+    return variants.has(host) || host.endsWith("." + bare);
+  };
+  for (const u of expanded) {
+    if (hostOk(u)) return true;
   }
   return false;
 }
