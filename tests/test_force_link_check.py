@@ -26,6 +26,10 @@ def _website() -> Website:
     return Website(name="site-a", url="https://a.example/", linkpage="https://a.example/friends/")
 
 
+def _website_b() -> Website:
+    return Website(name="site-b", url="https://b.example/", linkpage="https://b.example/friends/")
+
+
 def _fresh_cached() -> LinkCheckRecord:
     # 一条新鲜的已检记录：可达、有测速、未参与 RSS 抓取 → 非强制时会被复用。
     return LinkCheckRecord(
@@ -35,6 +39,18 @@ def _fresh_cached() -> LinkCheckRecord:
         checked_at=NOW,
         reachable=True,
         best_latency="0.5",
+        crawl_allowed=False,
+    )
+
+
+def _fresh_cached_b() -> LinkCheckRecord:
+    return LinkCheckRecord(
+        name="site-b",
+        url="https://b.example/",
+        linkpage="https://b.example/friends/",
+        checked_at=NOW,
+        reachable=True,
+        best_latency="0.8",
         crawl_allowed=False,
     )
 
@@ -83,6 +99,35 @@ class ForceLinkCheckTests(unittest.TestCase):
             self.assertEqual(fresh.call_count, 1)
             self.assertEqual(recs[0].checked_at, "FRESH")
             self.assertFalse(recs[0].reachable)
+
+    def test_target_link_only_checks_matched_and_reuses_rest(self):
+        # 指定 target_link 时：命中的友链重新检测（忽略缓存），未命中的直接复用缓存、不参与本轮。
+        with tempfile.TemporaryDirectory() as tmp:
+            store = LinkCheckStore(Path(tmp) / "cache.db")
+            store.save_records([_fresh_cached(), _fresh_cached_b()])
+            marker = LinkCheckRecord(
+                name="site-a",
+                url="https://a.example/",
+                linkpage="https://a.example/friends/",
+                checked_at="FRESH",
+                reachable=False,
+            )
+            with patch.dict(sys.modules["os"].environ, {"TARGET_LINK": "site-a"}):
+                svc = LinkReachabilityService(
+                    config=LinkCheckConfig(max_age_hours=24),
+                    proxy_settings=ProxySettings(),
+                    store=store,
+                )
+                with patch.object(svc, "_check_fresh_websites", return_value=[marker]) as fresh, patch.object(
+                    svc, "_refresh_backlinks_only"
+                ):
+                    recs = svc.check_websites([_website(), _website_b()])
+            # 仅命中 site-a 被重新检测；site-b 未命中 → 复用缓存，不发起检测
+            self.assertEqual(fresh.call_count, 1)
+            self.assertEqual(fresh.call_args.args[0][0].url, "https://a.example/")
+            self.assertEqual(recs[0].checked_at, "FRESH")  # site-a 返回新结果
+            self.assertTrue(recs[1].reachable)  # site-b 返回复用的缓存记录
+            self.assertEqual(recs[1].checked_at, NOW)
 
 
 if __name__ == "__main__":

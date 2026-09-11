@@ -104,6 +104,11 @@ class LinkReachabilityService:
         if force is None:
             force = os.getenv("FORCE_CHECK", "").strip().lower() in ("1", "true", "yes", "y", "强制", "on")
         self.force = force
+        # 指定目标友链（手动「仅检测某条」）：从 TARGET_LINK 环境变量读取，
+        # 多个用 | 或逗号分隔；命中者忽略缓存重新检测，未命中者复用缓存、不参与本轮。
+        target_raw = os.getenv("TARGET_LINK", "").strip()
+        self.target_link_raw = target_raw
+        self.target_link_list = [t.strip() for t in target_raw.replace(",", "|").split("|") if t.strip()]
 
     def check_websites(self, websites: list[Website]) -> list[LinkCheckRecord]:
         """检查一组友链，优先复用未过期缓存。"""
@@ -122,19 +127,33 @@ class LinkReachabilityService:
         websites_to_check: list[Website] = []
         backlink_refresh_records: list[tuple[Website, LinkCheckRecord]] = []
 
-        if self.force:
+        # 指定目标友链：只对这些友链重新检测（忽略其缓存），其余直接复用缓存、不参与本轮。
+        if self.target_link_list:
+            for website in websites:
+                if self._matches_target(website):
+                    websites_to_check.append(website)
+                else:
+                    cached = cached_records.get(website.url)
+                    if cached is not None:
+                        records_by_url[website.url] = cached
+            logging.info(
+                f"[友链检测] 指定目标过滤 '{self.target_link_raw}'：匹配 {len(websites_to_check)} 个，"
+                f"其余 {len(websites) - len(websites_to_check)} 个复用缓存、不参与检测"
+            )
+        elif self.force:
             logging.info("[友链检测] 强制模式：忽略可达性缓存，对所有友链重新检测")
-
-        for website in websites:
-            cached = cached_records.get(website.url)
-            if not self.force and cached and self._can_reuse_cached_record(cached, website):
-                linkpage_changed = not self._same_linkpage(cached.linkpage, website.linkpage)
-                refreshed = self._refresh_cached_metadata(cached, website)
-                records_by_url[website.url] = refreshed
-                if self._should_refresh_backlink(refreshed, website, linkpage_changed):
-                    backlink_refresh_records.append((website, refreshed))
-            else:
-                websites_to_check.append(website)
+            websites_to_check = list(websites)
+        else:
+            for website in websites:
+                cached = cached_records.get(website.url)
+                if cached and self._can_reuse_cached_record(cached, website):
+                    linkpage_changed = not self._same_linkpage(cached.linkpage, website.linkpage)
+                    refreshed = self._refresh_cached_metadata(cached, website)
+                    records_by_url[website.url] = refreshed
+                    if self._should_refresh_backlink(refreshed, website, linkpage_changed):
+                        backlink_refresh_records.append((website, refreshed))
+                else:
+                    websites_to_check.append(website)
 
         total_count = len(websites)
         cached_count = total_count - len(websites_to_check)
@@ -160,6 +179,13 @@ class LinkReachabilityService:
             self._refresh_backlinks_only(backlink_refresh_records)
 
         return [records_by_url.get(website.url) or LinkCheckRecord.unchecked(website) for website in websites]
+
+    def _matches_target(self, website: Website) -> bool:
+        """名称 / 链接 / 友链页任一包含目标关键词即视为命中。"""
+        if not self.target_link_list:
+            return False
+        hay = f"{website.name}\n{website.url}\n{getattr(website, 'linkpage', '') or ''}".lower()
+        return any(tok.lower() in hay for tok in self.target_link_list)
 
     def _check_fresh_websites(self, websites: list[Website], cached_records: dict[str, LinkCheckRecord]) -> list[LinkCheckRecord]:
         records: list[LinkCheckRecord] = []

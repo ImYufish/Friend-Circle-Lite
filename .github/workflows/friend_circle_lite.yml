@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       target_link:
-        description: "仅截取指定友链（名称或URL关键词，多个用 | 或逗号分隔，留空=按增量规则处理全部）"
+        description: "仅处理指定友链（检测+截图，名称或URL关键词，多个用 | 或逗号分隔，留空=按增量/force 规则处理全部）"
         required: false
         type: string
         default: ""
@@ -90,6 +90,7 @@ jobs:
         FCL_REPO: ${{ github.repository }}
         FCL_CONFIG_OVERRIDES: ${{ vars.FCL_CONFIG_OVERRIDES }}
         FORCE_CHECK: ${{ github.event.inputs.force }}
+        TARGET_LINK: ${{ github.event.inputs.target_link }}
       run: |
         echo "开始抓取 RSS 文章..."
         python run.py
