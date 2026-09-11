@@ -38,13 +38,6 @@ body:
       description: 留空表示不改；填写则覆盖原头像
     validations:
       required: false
-  - type: input
-    id: tags
-    attributes:
-      label: 标签
-      description: 逗号 / 空格 / 顿号分隔，例如 Blog, 技术, 生活；留空表示不改标签
-    validations:
-      required: false
   - type: markdown
     attributes:
       value: |

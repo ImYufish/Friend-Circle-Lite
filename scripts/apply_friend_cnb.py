@@ -142,7 +142,6 @@ FIELDS = {
     "linkpage": ("友链页面 URL", "友链页面URL", "友链页面"),
     "desc": ("网站描述",),
     "imgurl": ("网站头像 URL", "网站头像URL", "网站头像"),
-    "tags": ("标签", "tags", "Tags"),
 }
 
 
@@ -430,21 +429,11 @@ def upsert_friend(title, siteurl, imgurl, desc, linkpage, issue_id, reverify: bo
     return action
 
 
-def parse_tags(raw: str):
-    """表单「标签：Blog, 技术, 生活」→ ["Blog","技术","生活"]；字段缺失返回 None（不改）。"""
-    s = (raw or "").strip()
-    if not s:
-        return None
-    parts = re.split(r"[,，、\s]+", s)
-    out = [p.strip() for p in parts if p.strip()]
-    return out or None
-
-
-def modify_friend(siteurl, title, imgurl, desc, linkpage, tags, issue_id) -> str:
+def modify_friend(siteurl, title, imgurl, desc, linkpage, issue_id) -> str:
     """按 link 定位已存在友链，强制覆盖提供的字段；未提供则保留原值。
 
     与 upsert_friend 的「仅填空字段」语义相反：修改通道下，申请人在表单里填了的
-    字段就覆盖原值，留空则不动。tags 传 None 表示不改标签，传空数组 [] 表示清空。
+    字段就覆盖原值，留空则不动。标签由站长维护，本通道不修改 tags。
     返回 'updated' / 'not-found'。
     """
     with open("friends.json", encoding="utf-8") as f:
@@ -461,8 +450,6 @@ def modify_friend(siteurl, title, imgurl, desc, linkpage, tags, issue_id) -> str
         entry["desc"] = desc
     if linkpage:
         entry["linkpage"] = linkpage
-    if tags is not None:
-        entry["tags"] = tags
     entry["issue_id"] = issue_id
     entry["enabled"] = True
     data["version"] = data.get("version", 1)
@@ -565,7 +552,7 @@ def main() -> int:
             return 0
         action = modify_friend(
             siteurl, fields["title"], fields["imgurl"], fields["desc"],
-            fields["linkpage"], parse_tags(fields["tags"]),
+            fields["linkpage"],
             int(IID) if IID.isdigit() else IID,
         )
         if action == "not-found":
@@ -582,7 +569,7 @@ def main() -> int:
             log.warning("移除标签失败（不影响结果）：%s", e)
         comment_issue(
             "✅ 友链信息已更新（引擎：" + result["engine"] + "）。\n\n"
-            "可改字段：网站名称 / 网站链接 / 网站头像 / 网站描述 / 友链页面 / 标签（留空表示不改）。"
+            "可改字段：网站名称 / 网站链接 / 网站头像 / 网站描述 / 友链页面（留空表示不改；标签由站长维护，不支持自助修改）。"
             "friends.json 已写回，主检测流程即将自动运行生成最新数据。"
         )
         close_issue()

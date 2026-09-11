@@ -127,8 +127,6 @@ jobs:
             const linkpage = cleanUrl(field("友链页面 URL"));
             const desc    = field("网站描述").trim();
             const imgurl  = field("网站头像 URL").trim();
-            const tagsRaw = field("标签");
-            const tags = tagsRaw ? tagsRaw.split(/[,，、\s]+/).map((s) => s.trim()).filter(Boolean) : null;
 
             // 必填校验：申请模式要求全字段；修改模式只需「网站链接」用于定位（其余留空即不改）
             const missing = [];
@@ -178,9 +176,17 @@ jobs:
             // 申请模式下去重：已存在则提示无需重复添加并关闭；修改模式放行（本就要改已存在条目）
             if (!isReverify && !isModify && exists) {
               try {
+                // 先移除「待更新」标签（重验可能已打上），再评论并关闭
+                try {
+                  const iss = await github.rest.issues.get({ owner, repo, issue_number });
+                  const labels = (iss.data.labels || []).map((l) => l.name);
+                  if (labels.includes("待更新")) {
+                    await github.rest.issues.removeLabel({ owner, repo, issue_number, name: "待更新" });
+                  }
+                } catch (_) {}
                 await github.rest.issues.createComment({
                   owner, repo, issue_number,
-                  body: "ℹ️ 友链 **" + title + "**（" + finalSiteurl + "）已存在，无需重复添加。如需修改信息请改用 `[友链修改]` 标题重新提交。",
+                  body: "ℹ️ 友链 **" + title + "**（`" + finalSiteurl + "`）已存在，无需重复添加。如需修改信息请改用 `[友链修改]` 标题重新提交。",
                 });
                 await github.rest.issues.update({ owner, repo, issue_number, state: "closed" });
               } catch(err) {
@@ -199,7 +205,6 @@ jobs:
               title: title,
               desc: desc,
               imgurl: imgurl,
-              tags: tags,
               mode: isModify ? 'modify' : (isReverify ? 'reverify' : 'apply'),
             }, null, 2));
             core.setOutput('shouldVerify', 'true');
@@ -233,7 +238,6 @@ jobs:
             const imgurl = input.imgurl;
             const issueId = input.issue_number;
             const mode = input.mode || 'apply';
-            const tags = input.tags; // null = 不改标签；数组（含 []）= 覆盖
 
             if (!result.pass) {
               let reason = result.reason || "验证未通过";
@@ -288,7 +292,6 @@ jobs:
               if (imgurl)  entry.avatar = imgurl;
               if (desc)    entry.desc = desc;
               if (linkpage) entry.linkpage = linkpage;
-              if (tags !== null && tags !== undefined) entry.tags = tags;
               entry.verified = true;
               entry.enabled = true;
               entry.issue_id = issueId;
@@ -341,8 +344,8 @@ jobs:
                 await github.rest.issues.removeLabel({ owner, repo, issue_number, name: "待更新" });
               }
               const okBody = (mode === 'modify')
-                ? "✅ 友链信息已更新（引擎：" + (result.engine || "playwright") + "）。\n\n可改字段：网站名称 / 网站链接 / 网站头像 / 网站描述 / 友链页面 / 标签（留空表示不改）。friends.json 已写回，主检测流程即将自动运行生成最新数据。"
-                : "✅ 反链核验与可访问性检查均通过（引擎：" + (result.engine || "playwright") + "），已自动添加友链 **" + title + "**（" + finalSiteurl + "）。\n\nfriends.json 已更新，主检测流程即将自动运行生成最新数据。";
+                ? "✅ 友链信息已更新（引擎：" + (result.engine || "playwright") + "）。\n\n可改字段：网站名称 / 网站链接 / 网站头像 / 网站描述 / 友链页面（留空表示不改；标签由站长维护，不支持自助修改）。friends.json 已写回，主检测流程即将自动运行生成最新数据。"
+                : "✅ 反链核验与可访问性检查均通过（引擎：" + (result.engine || "playwright") + "），已自动添加友链 **" + title + "**（`" + finalSiteurl + "`）。\n\nfriends.json 已更新，主检测流程即将自动运行生成最新数据。";
               await github.rest.issues.createComment({
                 owner, repo, issue_number,
                 body: okBody,
