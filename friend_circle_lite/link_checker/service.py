@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
@@ -87,6 +88,7 @@ class LinkReachabilityService:
         feed_discovery=None,
         fetcher: WebFetchClient | None = None,
         eo_ping_url: str = "",
+        force: bool | None = None,
     ):
         self.config = config
         self.proxy_settings = proxy_settings
@@ -97,6 +99,11 @@ class LinkReachabilityService:
         self.fetcher = fetcher
         self.eo_ping_url = eo_ping_url or ""
         self.feed_updates: dict[str, CacheRecord | None] = {}
+        # 强制模式（手动「重新检测」时置位）：忽略可达性缓存，对所有友链重新检测。
+        # 默认从环境变量 FORCE_CHECK 读取，便于 CI 手动触发透传，无需改动调用方。
+        if force is None:
+            force = os.getenv("FORCE_CHECK", "").strip().lower() in ("1", "true", "yes", "y", "强制", "on")
+        self.force = force
 
     def check_websites(self, websites: list[Website]) -> list[LinkCheckRecord]:
         """检查一组友链，优先复用未过期缓存。"""
@@ -115,9 +122,12 @@ class LinkReachabilityService:
         websites_to_check: list[Website] = []
         backlink_refresh_records: list[tuple[Website, LinkCheckRecord]] = []
 
+        if self.force:
+            logging.info("[友链检测] 强制模式：忽略可达性缓存，对所有友链重新检测")
+
         for website in websites:
             cached = cached_records.get(website.url)
-            if cached and self._can_reuse_cached_record(cached, website):
+            if not self.force and cached and self._can_reuse_cached_record(cached, website):
                 linkpage_changed = not self._same_linkpage(cached.linkpage, website.linkpage)
                 refreshed = self._refresh_cached_metadata(cached, website)
                 records_by_url[website.url] = refreshed

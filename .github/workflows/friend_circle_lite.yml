@@ -89,6 +89,7 @@ jobs:
         EO_PING_URL: ${{ secrets.EO_PING_URL }}
         FCL_REPO: ${{ github.repository }}
         FCL_CONFIG_OVERRIDES: ${{ vars.FCL_CONFIG_OVERRIDES }}
+        FORCE_CHECK: ${{ github.event.inputs.force }}
       run: |
         echo "开始抓取 RSS 文章..."
         python run.py
