@@ -8,7 +8,9 @@
       "verified": true,
       "rss": "",
       "desc": "久有羡鱼意，不甘空望川. 躬身耕岁月，步步赴清澜",
-      "tags": ["Blog"],
+      "tags": [
+        "Blog"
+      ],
       "enabled": true,
       "weight": 10
     },
@@ -20,7 +22,9 @@
       "verified": true,
       "rss": "https://blog.cuteleaf.cn/rss.xml",
       "desc": "飞萤之火自无梦的长夜亮起，绽放在终竟的明天。",
-      "tags": ["Blog"],
+      "tags": [
+        "Blog"
+      ],
       "enabled": true,
       "weight": 9
     },
@@ -32,7 +36,9 @@
       "verified": false,
       "rss": "https://fqzlr.com/rss.xml",
       "desc": "躬身入局，心为主理，行有尺度，自持本心.",
-      "tags": ["Blog"],
+      "tags": [
+        "Blog"
+      ],
       "enabled": true,
       "weight": 5
     },
@@ -44,7 +50,9 @@
       "verified": false,
       "rss": "https://blog.tsh520.cn/rss.xml",
       "desc": "如果你喜欢那么欢迎来到我的世界！",
-      "tags": ["Blog"],
+      "tags": [
+        "Blog"
+      ],
       "enabled": true,
       "weight": 5
     },
@@ -56,7 +64,9 @@
       "verified": false,
       "rss": "https://blog.amamo.top/rss.xml",
       "desc": "分享生活和技术。",
-      "tags": ["Blog"],
+      "tags": [
+        "Blog"
+      ],
       "enabled": true,
       "weight": 5
     },
@@ -68,7 +78,9 @@
       "verified": false,
       "rss": "https://xixmu.top/rss.xml",
       "desc": "在记忆干枯前描绘。",
-      "tags": ["Blog"],
+      "tags": [
+        "Blog"
+      ],
       "enabled": true,
       "weight": 5
     },
@@ -80,7 +92,9 @@
       "verified": false,
       "rss": "https://silvaire.top/rss.xml",
       "desc": "Per Aspera Ad Astra",
-      "tags": ["Blog"],
+      "tags": [
+        "Blog"
+      ],
       "enabled": true,
       "weight": 5
     },
@@ -92,7 +106,9 @@
       "verified": false,
       "rss": "https://tblog.mmzhiku.xyz/rss.xml",
       "desc": "哈基米，南北绿豆",
-      "tags": ["Blog"],
+      "tags": [
+        "Blog"
+      ],
       "enabled": true,
       "weight": 5
     },
@@ -104,7 +120,9 @@
       "verified": false,
       "rss": "https://upxuu.com/rss.xml",
       "desc": "逐光而上",
-      "tags": ["Blog"],
+      "tags": [
+        "Blog"
+      ],
       "enabled": true,
       "weight": 5
     },
@@ -116,7 +134,9 @@
       "verified": false,
       "rss": "https://blog.qtfyu.top/rss.xml",
       "desc": "被发现了huh！",
-      "tags": ["Blog"],
+      "tags": [
+        "Blog"
+      ],
       "enabled": true,
       "weight": 5
     },
@@ -128,7 +148,9 @@
       "verified": false,
       "rss": "https://blog.lxlovo.top/rss.xml",
       "desc": "一个爱写文的菜鸡。",
-      "tags": ["Blog"],
+      "tags": [
+        "Blog"
+      ],
       "enabled": true,
       "weight": 5
     },
@@ -140,7 +162,9 @@
       "verified": false,
       "rss": "https://vtdd.vip/rss.xml",
       "desc": "浮生一刹万般皆舍",
-      "tags": ["Blog"],
+      "tags": [
+        "Blog"
+      ],
       "enabled": true,
       "weight": 5
     },
@@ -152,7 +176,9 @@
       "verified": false,
       "rss": "https://blog.olinl.com/rss.xml",
       "desc": "分享、实践、学习",
-      "tags": ["Blog"],
+      "tags": [
+        "Blog"
+      ],
       "enabled": true,
       "weight": 5
     },
@@ -164,7 +190,9 @@
       "verified": false,
       "rss": "",
       "desc": "heron_i的小站",
-      "tags": ["Blog"],
+      "tags": [
+        "Blog"
+      ],
       "enabled": true,
       "weight": 5
     },
@@ -176,7 +204,9 @@
       "verified": false,
       "rss": "https://azuma.mstzuomu.space/rss.xml",
       "desc": "热爱是拯救无趣人生的唯一途径",
-      "tags": ["Blog"],
+      "tags": [
+        "Blog"
+      ],
       "enabled": true,
       "weight": 5
     },
@@ -188,7 +218,9 @@
       "verified": false,
       "rss": "https://blog.lqay.cn/index.php/feed/",
       "desc": "嗯对就是个博客",
-      "tags": ["Blog"],
+      "tags": [
+        "Blog"
+      ],
       "enabled": true,
       "weight": 5
     },
@@ -200,7 +232,9 @@
       "verified": true,
       "rss": "https://xjc.ccwu.cc/rss.xml",
       "desc": "记录个人生活和学习的一个网站。",
-      "tags": ["Blog"],
+      "tags": [
+        "Blog"
+      ],
       "enabled": true,
       "weight": 5
     },
@@ -212,7 +246,9 @@
       "verified": false,
       "rss": "https://furinafans.com/rss.xml",
       "desc": "你记得花，花就开，你记得我，我就在。",
-      "tags": ["Blog"],
+      "tags": [
+        "Blog"
+      ],
       "enabled": true,
       "weight": 5
     },
@@ -224,7 +260,9 @@
       "verified": false,
       "rss": "https://www.stackmeow.tech/rss.xml",
       "desc": "人生是层层堆叠的经历，而内心永远保有一只自在小猫。",
-      "tags": ["Blog"],
+      "tags": [
+        "Blog"
+      ],
       "enabled": true,
       "weight": 5
     },
@@ -233,10 +271,26 @@
       "imgurl": "https://linlog.top/api/uploads/2026/09/1788411216332767920-dca59196a965c5e8.jpg",
       "desc": "记录技术、互联网与日常观察",
       "siteurl": "https://linlog.top",
-      "tags": ["Blog"],
+      "tags": [
+        "Blog"
+      ],
       "weight": 5,
       "enabled": true,
       "linkpage": "https://linlog.top/friends"
+    },
+    {
+      "name": "星宇安全实验室",
+      "avatar": "https://bk.zhaozhiqiang.pw/wp-content/uploads/2026/07/1784847314130_148x148.png",
+      "desc": "星宇安全实验室，专注网络安全技术分享，记录团队实战经历、安全研究与编程成长笔记，致力于分享网安学习干货.",
+      "link": "https://bk.zhaozhiqiang.pw/",
+      "linkpage": "https://bk.zhaozhiqiang.pw/friendship-links/",
+      "rss": "",
+      "tags": [
+        "Blog"
+      ],
+      "weight": 5,
+      "enabled": true,
+      "verified": false
     }
   ],
   "version": 1,
