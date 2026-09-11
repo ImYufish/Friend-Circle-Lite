@@ -17,7 +17,7 @@ on:
         type: string
         default: ""
       force:
-        description: "强制重新截图：忽略已有截图缓存，对所有可达（或指定）友链重新截图。用于图片被删/图床失效后手动补截"
+        description: "强制重跑（检测+截图）：忽略已有检测与截图缓存，对所有可达（或指定 target_link）友链重新做可达性/反链检测并重新截图。用于图片被删/图床失效或检测缓存脏后手动全量补跑"
         required: false
         type: boolean
         default: false
