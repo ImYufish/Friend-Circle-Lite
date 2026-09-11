@@ -12,9 +12,18 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from friend_circle_lite.postprocess.siteshot_merge import merge
-from friend_circle_lite.screenshots.runner import _is_expired
+from friend_circle_lite.screenshots.runner import _is_expired, _select_targets
 
 NOW = datetime(2026, 8, 24, 12, 0, 0)
+
+
+def _items():
+    return [
+        {"name": "ok", "link": "https://ok.example/", "reachable": True, "siteshot": "https://img/ok.png"},
+        {"name": "deleted", "link": "https://deleted.example/", "reachable": True, "siteshot": "https://img/deleted.png"},
+        {"name": "down", "link": "https://down.example/", "reachable": False, "siteshot": "https://img/down.png"},
+        {"name": "noshot", "link": "https://noshot.example/", "reachable": True},
+    ]
 
 
 def _make_item(shot_at_days_ago=None):
@@ -64,6 +73,28 @@ class ScreenshotRefreshTests(unittest.TestCase):
             items = {it["name"]: it for it in json.loads(target.read_text(encoding="utf-8"))["link_data"]}
             self.assertEqual(items["old-ts"]["sitetshot_at"], "2026-08-01 00:00:00")  # 跟随 baseline
             self.assertTrue(items["no-ts"]["sitetshot_at"])  # 缺失时补当前时间作为周期起点
+
+
+class SelectTargetsTests(unittest.TestCase):
+    def test_incremental_skips_usable_shots(self):
+        # 常规增量：已有有效截图的跳过，缺图才补
+        targets = _select_targets(_items(), refresh_days=0, target_list=[], force=False)
+        names = {t["name"] for t in targets}
+        self.assertEqual(names, {"noshot"})  # ok/deleted 有可用图→跳过；down 不可达→跳过
+
+    def test_force_reshots_all_reachable(self):
+        # 强制模式：忽略缓存，所有可达友链都重截（含已删图）
+        targets = _select_targets(_items(), refresh_days=0, target_list=[], force=True)
+        names = {t["name"] for t in targets}
+        self.assertEqual(names, {"ok", "deleted", "noshot"})  # down 不可达→仍跳过
+
+    def test_target_link_overrides_cache(self):
+        # 指定目标：匹配到的友链直接重截，无论是否已有可用截图
+        targets = _select_targets(_items(), refresh_days=0, target_list=["deleted.example"], force=False)
+        self.assertEqual({t["name"] for t in targets}, {"deleted"})
+        # 指定目标时即便 force 也为 True，仍只重截匹配项（target_list 优先）
+        targets2 = _select_targets(_items(), refresh_days=0, target_list=["deleted.example"], force=True)
+        self.assertEqual({t["name"] for t in targets2}, {"deleted"})
 
 
 if __name__ == "__main__":

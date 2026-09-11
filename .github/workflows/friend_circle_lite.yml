@@ -16,6 +16,11 @@ on:
         required: false
         type: string
         default: ""
+      force:
+        description: "强制重新截图：忽略已有截图缓存，对所有可达（或指定）友链重新截图。用于图片被删/图床失效后手动补截"
+        required: false
+        type: boolean
+        default: false
 
 # 检测与截图两个 job 都会强推 page 分支；定时 / 手动 / push 多入口可能并发互相覆盖，
 # 与 check-flink 同款串行化：同 group 排队、不取消在跑任务。
@@ -270,6 +275,7 @@ jobs:
           IMG_AUTH_CODE: ${{ secrets.IMG_AUTH_CODE }}
           LINK_CURRENT: ./link.json
           TARGET_LINK: ${{ github.event.inputs.target_link }}
+          FORCE_SHOT: ${{ github.event.inputs.force }}
           FCL_CONFIG_OVERRIDES: ${{ vars.FCL_CONFIG_OVERRIDES }}
         run: |
           echo "开始增量截图..."

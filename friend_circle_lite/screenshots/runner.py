@@ -10,6 +10,8 @@ runner.py - 截图运行入口（FCL 版）
 因此本入口可以每轮检测后安全地重复执行，只补缺口。
 时效策略：conf.yaml postprocess.siteshot.refresh_days > 0 时，
 截图时间（sitetshot_at）超过该天数的站点视为过期，重新截图刷新。
+强制策略：环境变量 FORCE_SHOT 为真（手动触发「重新截图」时置位），
+忽略已有截图缓存，对所有可达友链重新截图；常用于图片被删/图床失效后手动补截。
 """
 
 from __future__ import annotations
@@ -37,6 +39,9 @@ SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 LINK_FILE = os.getenv("LINK_CURRENT", "./link.json")
 _RAW_TARGET = os.getenv("TARGET_LINK", "").strip()
 TARGET_LINK_LIST: list[str] = [p.strip() for p in _RAW_TARGET.replace(",", "|").split("|") if p.strip()]
+# 强制模式：忽略已有截图缓存，对所有可达（或指定）友链重新截图。
+# 手动触发「重新截图」时用；常规定时/增量运行留空即可。
+FORCE_SHOT = os.getenv("FORCE_SHOT", "").strip().lower() in ("1", "true", "yes", "y", "强制", "on")
 
 
 def host_from_url(url: str) -> str:
@@ -75,6 +80,26 @@ def _is_expired(item: dict, refresh_days: int, now: datetime | None = None) -> b
     if now.tzinfo is None:
         now = now.replace(tzinfo=SHANGHAI_TZ)
     return (now - shot_time).total_seconds() >= refresh_days * 86400
+
+
+def _select_targets(items: list[dict], refresh_days: int, target_list: list[str], force: bool) -> list[dict]:
+    """按「指定目标 / 强制 / 增量+时效」三策略选需要截图的友链。
+
+    - target_list 非空：手动指定，匹配到的友链直接重截（忽略增量缓存）。
+    - 否则 force：所有可达友链重截（忽略已有截图缓存）。
+    - 否则（常规增量）：只对缺有效截图或已过刷新周期的友链截图。
+    """
+    if target_list:
+        return [
+            it for it in items
+            if any(t in it.get("name", "") or t in it.get("link", "") for t in target_list)
+        ]
+    if force:
+        return [it for it in items if it.get("reachable")]
+    return [
+        it for it in items
+        if it.get("reachable") and (not _is_usable(it.get("siteshot")) or _is_expired(it, refresh_days))
+    ]
 
 
 def main() -> None:
@@ -116,20 +141,11 @@ def main() -> None:
         logger.warning("link_data 为空，跳过截图")
         return
 
-    # 只对可达、且（缺有效截图 或 截图已过刷新周期）的友链截图（增量 + 时效）
-    targets = [
-        it for it in items
-        if it.get("reachable") and (not _is_usable(it.get("siteshot")) or _is_expired(it, refresh_days))
-    ]
-    skipped = len(items) - len([it for it in items if it.get("reachable")]) - sum(
-        1 for it in items if not it.get("reachable") and _is_usable(it.get("siteshot"))
-    )
-    if TARGET_LINK_LIST:
-        targets = [
-            it for it in items
-            if any(t in it.get("name", "") or t in it.get("link", "") for t in TARGET_LINK_LIST)
-        ]
-        logger.info(f"指定目标过滤 '{_RAW_TARGET}'：匹配到 {len(targets)} 个友链")
+    targets = _select_targets(items, refresh_days, TARGET_LINK_LIST, FORCE_SHOT)
+    if FORCE_SHOT:
+        logger.info(f"⚡ 强制模式：忽略已有截图缓存，对所有可达友链重新截图（匹配 {len(targets)} 个）")
+    elif TARGET_LINK_LIST:
+        logger.info(f"指定目标过滤 '{_RAW_TARGET}'：匹配到 {len(targets)} 个友链（手动重截，忽略缓存）")
 
     if not targets:
         logger.info(f"所有可达友链均已有有效截图（本次扫描 {len(items)} 条），无需补截")
