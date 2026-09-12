@@ -91,6 +91,9 @@ jobs:
         FCL_CONFIG_OVERRIDES: ${{ vars.FCL_CONFIG_OVERRIDES }}
         FORCE_CHECK: ${{ github.event.inputs.force }}
         TARGET_LINK: ${{ github.event.inputs.target_link }}
+        # 个人域名/端点：部署为他人时通过仓库 Variables 配置，避免写死仓库主人的值
+        FCL_AUTHOR_URL: ${{ vars.FCL_AUTHOR_URL }}
+        FCL_JSON_URL: ${{ vars.FCL_JSON_URL }}
       run: |
         echo "开始抓取 RSS 文章..."
         python run.py

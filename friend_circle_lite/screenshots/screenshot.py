@@ -4,7 +4,8 @@ screenshot.py - 友链主页截图 + 上传图床
 移植自 thun888/Python-WebSite-Screenshot（经 check-flink 整合），适配 Friend-Circle-Lite
 
 环境变量：
-- IMG_UPLOAD_URL：图床上传端点（默认 https://imgbed.yufish.cn/upload）
+- IMG_UPLOAD_URL：图床上传端点。部署为他人时必须自行配置（仓库 Secrets 或本地环境变量），
+                  未配置则本仓库默认值已移除，避免截图被静默上传到仓库主人的图床。
 - IMG_AUTH_CODE：上传认证码（可选）
 - IMG_UPLOAD_FOLDER：上传目录（默认 friends）
 """
@@ -33,7 +34,9 @@ PAGE_LOAD_WAIT = 3  # 页面渲染等待时间（秒）
 # 优先级：显式环境变量 > conf.yaml postprocess.siteshot > 内置默认。
 
 def _img_upload_url() -> str:
-    return os.getenv("IMG_UPLOAD_URL", "https://imgbed.yufish.cn/upload")
+    # 不再内嵌仓库主人的图床默认值：未配置 IMG_UPLOAD_URL 时返回空串，
+    # 由调用方（upload_to_imagebed）给出明确告警而非静默上传到他人图床。
+    return os.getenv("IMG_UPLOAD_URL", "").strip()
 
 
 def _img_auth_code() -> str:
@@ -113,6 +116,12 @@ def upload_to_imagebed(image_bytes: bytes, filename: str) -> Optional[str]:
     """
     try:
         upload_url = _img_upload_url()
+        if not upload_url:
+            logger.warning(
+                "[upload] 未配置 IMG_UPLOAD_URL（图床上传端点），跳过上传。"
+                "请在仓库 Secrets 配置 IMG_UPLOAD_URL，或本地设置同名环境变量。"
+            )
+            return None
         params = {
             "uploadFolder": _img_upload_folder(),
             "uploadNameType": "origin",

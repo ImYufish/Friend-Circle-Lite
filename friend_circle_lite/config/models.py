@@ -249,7 +249,8 @@ class ApplicationConfig:
             spider_settings=SpiderSettings(
                 enable=bool(spider_raw.get("enable", True)),
                 source=str(spider_raw.get("source", "local")).strip().lower() or "local",
-                json_url=str(spider_raw.get("json_url", "")).strip(),
+                # json_url 个人值通过环境变量 FCL_JSON_URL 注入，避免 fork 直接继承仓库主人的端点。
+                json_url=os.getenv("FCL_JSON_URL") or str(spider_raw.get("json_url", "")).strip(),
                 local_friends_file=str(spider_raw.get("local_friends_file", "friends.json")).strip() or "friends.json",
                 article_count=int(spider_raw.get("article_count", 5)),
                 list_key=str(spider_raw.get("list_key", "friends")).strip() or "friends",
@@ -277,7 +278,8 @@ class ApplicationConfig:
                 max_workers=int(link_check_raw.get("max_workers", 10)),
                 status_api_url=str(link_check_raw.get("status_api_url", "https://v2.xxapi.cn/api/status?url={url}")).strip(),
                 enable_backlink_check=bool(link_check_raw.get("enable_backlink_check", False)),
-                author_url=str(link_check_raw.get("author_url", "")).strip(),
+                # author_url 个人值通过环境变量 FCL_AUTHOR_URL 注入，避免 fork 直接继承仓库主人的域名。
+                author_url=os.getenv("FCL_AUTHOR_URL") or str(link_check_raw.get("author_url", "")).strip(),
                 eo_ping_url=os.getenv("EO_PING_URL") or str(link_check_raw.get("eo_ping_url", "")).strip(),
                 backlink_headless=_env_flag("BACKLINK_HEADLESS")
                 if _env_flag("BACKLINK_HEADLESS") is not None

@@ -54,6 +54,7 @@ jobs:
         uses: actions/github-script@v7
         env:
           AUTHOR_URL: ${{ secrets.AUTHOR_URL }}
+          FCL_AUTHOR_URL: ${{ vars.FCL_AUTHOR_URL }}
         with:
           script: |
             const fs = require('fs');
@@ -196,7 +197,15 @@ jobs:
               return;
             }
 
-            const authorUrl = process.env.AUTHOR_URL || "https://x1anyu.cn";
+            const authorUrl = process.env.AUTHOR_URL || process.env.FCL_AUTHOR_URL || "";
+            if (!authorUrl) {
+              core.setFailed(
+                "未配置反链核验所需的站点域名：请在仓库 Settings → Secrets 配置 AUTHOR_URL，" +
+                "或在 Variables 配置 FCL_AUTHOR_URL，值为你的站点域名（如 x1anyu.cn）。"
+              );
+              core.setOutput('shouldVerify', 'false');
+              return;
+            }
             fs.writeFileSync('verify_input.json', JSON.stringify({
               siteurl: finalSiteurl,
               linkpage: linkpage,

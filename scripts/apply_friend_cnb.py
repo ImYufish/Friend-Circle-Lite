@@ -213,7 +213,7 @@ def target_is_safe(url: str) -> bool:
 def load_author_url() -> str:
     env = os.getenv("AUTHOR_URL", "").strip()
     if env:
-        return env
+        return env if env.startswith("http") else f"https://{env}"
     try:
         import yaml
 
@@ -222,8 +222,14 @@ def load_author_url() -> str:
         if v:
             return v if v.startswith("http") else f"https://{v}"
     except Exception as e:  # noqa: BLE001
-        log.warning("读取 conf.yaml 的 author_url 失败，使用默认值：%s", e)
-    return "https://x1anyu.cn"
+        log.warning("读取 conf.yaml 的 author_url 失败：%s", e)
+    # 不再兜底仓库主人的域名：未配置时返回空串，反链核验会因无法匹配而明确失败，
+    # 避免 fork 静默把反链核验指向仓库主人的站点。
+    log.warning(
+        "未从环境变量 AUTHOR_URL 或 conf.yaml 读取到 author_url，反链核验将无效（必然不通过）。"
+        "请配置 AUTHOR_URL 或 conf.yaml link_check.author_url 为你的站点域名。"
+    )
+    return ""
 
 
 def contains_author_link(html: str, author_url: str) -> bool:

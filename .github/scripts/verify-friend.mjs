@@ -11,7 +11,6 @@ const outputPath = process.env.VERIFY_RESULT || "verify_result.json";
 const input = JSON.parse(fs.readFileSync(inputPath, "utf8"));
 const siteurl = input.siteurl;
 const linkpage = input.linkpage || "";
-const authorUrl = input.authorUrl || "https://x1anyu.cn";
 const target = linkpage.trim() ? linkpage.trim() : siteurl;
 
 const out = {
@@ -22,6 +21,16 @@ const out = {
   pass: false,
   engine: "playwright",
 };
+
+// 反链目标域名由上游（apply-friend.yml）注入；不再兜底仓库主人的域名，避免 fork 静默指向他人站点。
+const authorUrlRaw = (input.authorUrl || "").trim();
+if (!authorUrlRaw) {
+  out.ok = false;
+  out.reason = "未配置 authorUrl（反链核验目标域名），无法核验反链";
+  fs.writeFileSync(outputPath, JSON.stringify(out, null, 2));
+  process.exit(1);
+}
+const authorUrl = authorUrlRaw;
 
 // ---- SSRF 防护：仅允许 http/https，且目标主机不能是内网/保留地址 ----
 // 公开仓库的公开 Issue 任何人可提交 URL，验证器若直接 fetch 任意地址，

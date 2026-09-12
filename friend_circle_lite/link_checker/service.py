@@ -109,6 +109,12 @@ class LinkReachabilityService:
         target_raw = os.getenv("TARGET_LINK", "").strip()
         self.target_link_raw = target_raw
         self.target_link_list = [t.strip() for t in target_raw.replace(",", "|").split("|") if t.strip()]
+        # 反链检测需要 author_url（你的站点域名）；未配置时反链检测必然失效，给明确告警。
+        if getattr(self.config, "enable_backlink_check", False) and not self.config.author_url:
+            logging.warning(
+                "[友链检测] 已开启反链检测但未配置 author_url（环境变量 FCL_AUTHOR_URL 或 "
+                "conf.yaml link_check.author_url），反链核验将不会命中任何友链。"
+            )
 
     def check_websites(self, websites: list[Website]) -> list[LinkCheckRecord]:
         """检查一组友链，优先复用未过期缓存。"""

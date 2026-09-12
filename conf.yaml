@@ -24,7 +24,9 @@ debug: false
 spider_settings:
   enable: true
   source: local
-  json_url: "https://raw.githubusercontent.com/ImYufish/Friend-Circle-Lite/main/friends.json"
+  # json_url: 仅 remote 模式下使用（外部博客友链端点）。部署为他人时请通过环境变量 FCL_JSON_URL 注入，
+  #           避免把仓库主人的端点写死在配置里；local 模式（默认）未使用，留空即可。
+  json_url: ""
   article_count: 5
   # 真源在外部端点（source=remote）时，端点 JSON 的顶层键名，默认 friends。
   # 别人的端点可能用 link_list / data 等，配这里即可，FCL 不再硬编码 friends。
@@ -83,7 +85,9 @@ merge_settings:
 #   max_workers:           并发检测数量
 #   status_api_url:        兜底状态码 API；API-only 结果只用于可达性展示，不参与 RSS 抓取
 #   enable_backlink_check: 是否检测友链页是否包含你的站点链接
-#   author_url:            你的站点域名，用于反链检测，建议只填写域名
+#   author_url:            你的站点域名，用于反链检测，建议只填写域名。
+#                           【部署为他人时】不要在此写死仓库主人的域名，请通过环境变量 FCL_AUTHOR_URL 注入
+#                           （GitHub Actions 可在仓库 Variables 配置 FCL_AUTHOR_URL），留空即由环境变量接管。
 #   eo_ping_url:           国内延迟探针端点（可选）。钉在国内地域的 EdgeOne 云函数地址，
 #                          配置后额外测一个"国内视角"延迟并自动取优显示；留空则不启用。
 #                          推荐在仓库环境变量 EO_PING_URL 中配置，并让此处保持为空。
@@ -99,7 +103,7 @@ link_check:
   max_workers: 10
   status_api_url: "https://v2.xxapi.cn/api/status?url={url}"
   enable_backlink_check: true
-  author_url: "x1anyu.cn"
+  author_url: ""
   eo_ping_url: ""
   backlink_headless: true
 
