@@ -439,18 +439,8 @@ class LinkReachabilityService:
         author_url = self.config.author_url
         if not author_url or not content:
             return False
-        # 复用 headless 模块的变体生成，避免两套逻辑分叉（已处理已带协议的情况）。
-        variants = headless_checker._build_variants(author_url)
-        for variant in variants:
-            if (
-                f'href="{variant}"' in content
-                or f"href='{variant}'" in content
-                or f'href="{variant}/"' in content
-                or f"href='{variant}/'" in content
-                or variant in content
-            ):
-                return True
-        return False
+        # 复用 headless 模块的统一匹配（含中转链接 base64 解码），避免两套逻辑分叉。
+        return headless_checker._contains_author_link(content, author_url)
 
     def _can_reuse_cached_record(self, cached: LinkCheckRecord, website: Website) -> bool:
         max_age_hours = self._effective_recheck_hours(cached)

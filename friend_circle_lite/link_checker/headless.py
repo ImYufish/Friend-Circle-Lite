@@ -17,8 +17,10 @@ playwright 与 chromium 实例，所有渲染请求经队列串行投递给该�
 
 from __future__ import annotations
 
+import base64
 import logging
 import queue
+import re
 import threading
 from concurrent.futures import Future
 
@@ -70,9 +72,43 @@ def _build_variants(author_url: str) -> set[str]:
     }
 
 
-def _match(variants: set[str], content: str) -> bool:
-    if not content:
+def _decode_b64_tokens(text: str) -> list[str]:
+    """从文本里抓出所有 base64 片段并尽力解码，返回看起来像 URL 的解码串。
+
+    用于识别 WordPress「网址导航」等中转链接：真实目标经 base64 藏在
+    ``?golink=<base64>`` 这类参数里（如 ``aHR0cHM6Ly94MWFueXUuY24=`` →
+    ``https://x1anyu.cn``），初始 HTML 与渲染后的 HTML 都只有中转域名，
+    需解码参数才能比对作者域名。
+    """
+    out: list[str] = []
+    # URL 编码的 base64 先把 %3D/%2B/%2F 还原
+    s = text.replace("%3D", "=").replace("%2B", "+").replace("%2F", "/")
+    # 仅扫描长度 >=16 的 base64 段（URL 的 base64 至少这么长），减少无谓解码。
+    for tok in re.findall(r"[A-Za-z0-9+/]{16,}={0,2}", s):
+        try:
+            raw = base64.b64decode(tok + "=" * (-len(tok) % 4))
+            dec = raw.decode("utf-8", "ignore")
+        except Exception:
+            continue
+        if re.match(r"^https?://", dec, flags=re.I):
+            out.append(dec)
+    return out
+
+
+def _contains_author_link(content: str, author_url: str) -> bool:
+    """判定 content 是否包含指向 ``author_url`` 的真实友链（兼容中转链接 base64 解码）。"""
+    if not content or not author_url:
         return False
+    variants = _build_variants(author_url)
+    bare = author_url
+    for scheme in ("https://", "http://"):
+        if bare.startswith(scheme):
+            bare = bare[len(scheme):]
+            break
+    bare = bare.rstrip("/").lower()
+    host_ok = lambda h: h in variants or h.endswith("." + bare)
+
+    # 1) 直链子串匹配（覆盖绝大多数站点，零额外开销）
     for variant in variants:
         if (
             f'href="{variant}"' in content
@@ -82,10 +118,16 @@ def _match(variants: set[str], content: str) -> bool:
             or variant in content
         ):
             return True
+
+    # 2) 中转链接 base64 解码后比对 host（WordPress 网址导航 ?golink= 等）
+    for dec in _decode_b64_tokens(content):
+        host = re.sub(r"^https?://", "", dec, flags=re.I).split("/")[0].lower()
+        if host_ok(host):
+            return True
     return False
 
 
-def _render_and_match(browser, linkpage_url: str, variants: set[str], timeout: int) -> bool:
+def _render_and_match(browser, linkpage_url: str, author_url: str, timeout: int) -> bool:
     """在专职线程内执行：开 context 渲染页面并匹配作者域名。"""
     context = browser.new_context(user_agent=_LINK_CHECK_UA)
     page = context.new_page()
@@ -102,7 +144,7 @@ def _render_and_match(browser, linkpage_url: str, variants: set[str], timeout: i
             context.close()
         except Exception:
             pass
-    return _match(variants, content)
+    return _contains_author_link(content, author_url)
 
 
 def _worker_loop(tasks: "queue.Queue") -> None:
@@ -124,7 +166,7 @@ def _worker_loop(tasks: "queue.Queue") -> None:
                         headless=True,
                         args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
                     )
-                result = _render_and_match(browser, item["linkpage"], item["variants"], item["timeout"])
+                result = _render_and_match(browser, item["linkpage"], item["author_url"], item["timeout"])
                 future.set_result(result)
             except BaseException as exc:  # noqa: BLE001 - 必须回填 Future，否则调用方死等
                 future.set_exception(exc)
@@ -174,7 +216,7 @@ def check_or_false(linkpage_url: str, author_url: str, timeout: int = 20) -> boo
         return False
 
     future: Future = Future()
-    tasks.put({"future": future, "linkpage": linkpage_url, "variants": variants, "timeout": timeout})
+    tasks.put({"future": future, "linkpage": linkpage_url, "author_url": author_url, "timeout": timeout})
     try:
         # 单任务自身有 goto 超时；这里再兜底排队等待与浏览器冷启动的开销。
         return bool(future.result(timeout=max(180, timeout * 24)))
