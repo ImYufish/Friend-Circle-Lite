@@ -184,6 +184,9 @@ class AlertSettings:
     # 注意：持续不可达（站点挂掉）的提醒不在此配置——它跟随 link_checker 的
     # RetryBackoffPolicy.NOTIFY_TIERS（挂满 10/30/60 天各提醒一次），与复探间隔变长点一致。
     backlink_lost_days_threshold: int = 7
+    # 推送审计日志路径（JSONL，每次推送成功失败都写入）：环境变量 PUSH_LOG_PATH 优先，
+    # 否则此处，否则默认 ./push_log.jsonl。置空字符串则关闭写盘。
+    push_log_path: str = ""
 
 
 @dataclass(slots=True)
@@ -328,6 +331,7 @@ class ApplicationConfig:
                     qq_bot_alert_token=os.getenv("QQ_BOT_ALERT_TOKEN", "").strip(),
                     wecom_webhook_url=os.getenv("WECOM_WEBHOOK_URL") or str(alert_raw.get("wecom_webhook_url", "")).strip(),
                     backlink_lost_days_threshold=int(alert_raw.get("backlink_lost_days_threshold", 7) or 7),
+                    push_log_path=os.getenv("PUSH_LOG_PATH") or str(alert_raw.get("push_log_path", "")).strip(),
                 ),
             ),
             specific_rss=list(data.get("specific_RSS", []) or []),

@@ -97,8 +97,8 @@ def test_run_qq_success_skips_wecom(monkeypatch, tmp_path):
     monkeypatch.setenv("QQ_BOT_ALERT_TOKEN", "tk")
     monkeypatch.setenv("WECOM_WEBHOOK_URL", "https://qyapi.weixin.qq.com/x")
     calls = []
-    monkeypatch.setattr(notify, "push_qq", lambda u, t, x: calls.append("qq") or True)
-    monkeypatch.setattr(notify, "push_wecom", lambda *a: (_ for _ in ()).throw(AssertionError("不应走企微")))
+    monkeypatch.setattr(notify, "push_qq", lambda u, t, x, log_path="": calls.append("qq") or True)
+    monkeypatch.setattr(notify, "push_wecom", lambda *a, **k: (_ for _ in ()).throw(AssertionError("不应走企微")))
     assert notify.run(old, new) is True
     assert calls == ["qq"]
 
@@ -108,8 +108,8 @@ def test_run_qq_fail_falls_back_to_wecom(monkeypatch, tmp_path):
     monkeypatch.setenv("QQ_BOT_ALERT_URL", "https://bot.yufish.cn/api/alert")
     monkeypatch.setenv("WECOM_WEBHOOK_URL", "https://qyapi.weixin.qq.com/x")
     order = []
-    monkeypatch.setattr(notify, "push_qq", lambda *a: order.append("qq") or False)
-    monkeypatch.setattr(notify, "push_wecom", lambda *a: order.append("wecom") or True)
+    monkeypatch.setattr(notify, "push_qq", lambda *a, **k: order.append("qq") or False)
+    monkeypatch.setattr(notify, "push_wecom", lambda *a, **k: order.append("wecom") or True)
     assert notify.run(old, new) is True
     assert order == ["qq", "wecom"]
 
@@ -142,8 +142,8 @@ def test_run_with_settings_config(monkeypatch, tmp_path):
         wecom_webhook_url="",
     )
     captured = {}
-    monkeypatch.setattr(notify, "push_qq", lambda u, t, x: captured.update(url=u, token=t) or True)
-    monkeypatch.setattr(notify, "push_wecom", lambda *a: (_ for _ in ()).throw(AssertionError("不应走企微")))
+    monkeypatch.setattr(notify, "push_qq", lambda u, t, x, log_path="": captured.update(url=u, token=t) or True)
+    monkeypatch.setattr(notify, "push_wecom", lambda *a, **k: (_ for _ in ()).throw(AssertionError("不应走企微")))
     assert notify.run(old, new, settings=cfg) is True
     assert captured == {"url": "https://bot.example.com/api/alert", "token": "yaml-token"}
 
@@ -154,6 +154,84 @@ def test_run_settings_disabled(monkeypatch, tmp_path):
     monkeypatch.setattr(notify, "push_qq", lambda *a: (_ for _ in ()).throw(AssertionError("禁用后不应推送")))
     cfg = AlertSettings(enable=False, qq_bot_alert_url="https://bot.yufish.cn/api/alert")
     assert notify.run(old, new, settings=cfg) is False
+
+
+def test_push_log_writes_on_success_and_failure(monkeypatch, tmp_path):
+    """推送审计日志：成功/失败都落盘，且目标地址只记域名（不泄 key）。"""
+    log = str(tmp_path / "push_log.jsonl")
+
+    def fake_post_ok(url, json=None, timeout=None):
+        # QQ 看 ok=True；企微看 errcode==0，这里按调用顺序分别返回
+        body = {"ok": True}
+        if "wecom" in url or "webhook" in url:
+            body = {"errcode": 0, "errmsg": "ok"}
+        return _fake_resp(200, body)
+
+    def fake_post_fail(url, json=None, timeout=None):
+        raise RuntimeError("connection reset by peer")
+
+    monkeypatch.setattr(notify.requests, "post", fake_post_ok)
+    assert notify.push_qq("https://bot.yufish.cn/api/alert", "tk", "ok文本", log_path=log) is True
+
+    monkeypatch.setattr(notify.requests, "post", fake_post_fail)
+    assert notify.push_qq("https://bot.yufish.cn/api/alert", "tk", "fail文本", log_path=log) is False
+
+    # 企微：webhook key 在 query 里，日志里必须只剩域名
+    monkeypatch.setattr(notify.requests, "post", fake_post_ok)
+    assert notify.push_wecom("https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=SECRET", "md", log_path=log) is True
+
+    lines = [json.loads(l) for l in (tmp_path / "push_log.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert len(lines) == 3
+    # 第 1 条成功、第 2 条异常、第 3 条成功
+    assert lines[0]["event"] == "push" and lines[0]["channel"] == "qq" and lines[0]["ok"] is True
+    assert lines[1]["ok"] is False and lines[1]["error"] == "connection reset by peer"
+    assert lines[2]["channel"] == "wecom" and lines[2]["ok"] is True
+    # 域名脱敏：不得出现完整 webhook 路径与 key
+    assert all("SECRET" not in l["target"] for l in lines)
+    assert lines[2]["target"] == "qyapi.weixin.qq.com"
+    assert lines[0]["target"] == "bot.yufish.cn"
+
+
+def test_run_writes_push_log_on_qq_success(monkeypatch, tmp_path):
+    """run() 经 settings.push_log_path 把真实推送写入审计日志（走真实 push_qq）。"""
+    old, new = _rounds(tmp_path)
+    log = str(tmp_path / "push_log.jsonl")
+    cfg = AlertSettings(
+        enable=True,
+        qq_bot_alert_url="https://bot.example.com/api/alert",
+        qq_bot_alert_token="t",
+        wecom_webhook_url="",
+        push_log_path=log,
+    )
+    # 只替 requests.post，保留真实 push_qq 以验证其写盘逻辑
+    monkeypatch.setattr(notify.requests, "post",
+                        lambda url, json=None, timeout=None: _fake_resp(200, {"ok": True}))
+    monkeypatch.setattr(notify, "push_wecom", lambda *a, **k: (_ for _ in ()).throw(AssertionError("不应走企微")))
+    assert notify.run(old, new, settings=cfg) is True
+
+    lines = [json.loads(l) for l in (tmp_path / "push_log.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert len(lines) == 1
+    assert lines[0]["event"] == "push" and lines[0]["channel"] == "qq" and lines[0]["ok"] is True
+
+
+def test_run_no_channels_logs_skip(monkeypatch, tmp_path):
+    """未配置任何渠道时，run() 记一笔 skip（便于区分『没推』与『漏推』）。"""
+    old, new = _rounds(tmp_path)
+    log = str(tmp_path / "push_log.jsonl")
+    monkeypatch.delenv("QQ_BOT_ALERT_URL", raising=False)
+    monkeypatch.delenv("WECOM_WEBHOOK_URL", raising=False)
+    assert notify.run(old, new, settings=AlertSettings(push_log_path=log)) is False
+
+    lines = [json.loads(l) for l in (tmp_path / "push_log.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert len(lines) == 1
+    assert lines[0]["event"] == "skip" and "未配置推送渠道" in lines[0]["note"]
+
+
+def test_push_log_disabled_when_no_path(monkeypatch, tmp_path):
+    """未配置日志路径时完全不写盘（不产生 stray 文件）。"""
+    monkeypatch.setattr(notify.requests, "post", lambda url, json=None, timeout=None: _fake_resp(200, {"ok": True}))
+    assert notify.push_qq("https://bot.yufish.cn/api/alert", "tk", "x") is True
+    assert not (tmp_path / "push_log.jsonl").exists()
 
 
 def test_models_postprocess_env_priority(monkeypatch):

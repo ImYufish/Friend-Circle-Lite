@@ -43,6 +43,8 @@ try:
 except Exception:  # pragma: no cover - 仅在 import 异常时触发
     SUSTAINED_TIERS = (10, 30, 60)
 
+from friend_circle_lite.postprocess.push_log import log_push, log_skip, resolve_log_path
+
 
 def _norm(u: str) -> str:
     return re.sub(r"^https?://", "", (u or "").strip().lower()).rstrip("/")
@@ -197,8 +199,11 @@ def format_plain(changes: dict[str, list[dict]]) -> str:
     return "\n".join(lines)
 
 
-def push_qq(url: str, token: str, text: str) -> bool:
-    """经 blog-bot Worker 的 /api/alert 推送（QQ 单聊主动消息）。"""
+def push_qq(url: str, token: str, text: str, log_path: str = "") -> bool:
+    """经 blog-bot Worker 的 /api/alert 推送（QQ 单聊主动消息）。
+
+    log_path 非空时，无论成功失败都写一条推送审计日志（默认不写，由 run() 统一传入）。
+    """
     try:
         resp = requests.post(url, json={"token": token, "text": text}, timeout=15)
         try:
@@ -208,22 +213,26 @@ def push_qq(url: str, token: str, text: str) -> bool:
         ok = resp.status_code == 200 and isinstance(data, dict) and data.get("ok") is True
         if not ok:
             logger.warning(f"[alert] QQ 推送失败：HTTP {resp.status_code} {resp.text[:200]}")
+        log_push(log_path, "qq", url, text, ok, status=resp.status_code, resp=resp.text[:200])
         return ok
     except Exception as exc:
         logger.warning(f"[alert] QQ 推送异常：{exc}")
+        log_push(log_path, "qq", url, text, False, error=str(exc))
         return False
 
 
-def push_wecom(webhook_url: str, markdown: str) -> bool:
+def push_wecom(webhook_url: str, markdown: str, log_path: str = "") -> bool:
     payload = {"msgtype": "markdown", "markdown": {"content": markdown}}
     try:
         resp = requests.post(webhook_url, json=payload, timeout=15)
         ok = resp.status_code == 200 and resp.json().get("errcode") == 0
         if not ok:
             logger.warning(f"[alert] 企业微信推送失败：HTTP {resp.status_code} {resp.text[:200]}")
+        log_push(log_path, "wecom", webhook_url, markdown, ok, status=resp.status_code, resp=resp.text[:200])
         return ok
     except Exception as exc:
         logger.warning(f"[alert] 企业微信推送异常：{exc}")
+        log_push(log_path, "wecom", webhook_url, markdown, False, error=str(exc))
         return False
 
 
@@ -243,9 +252,13 @@ def run(old_path: str, new_path: str, settings: object | None = None) -> bool:
         logger.info("[alert] 两轮状态无变化，不推送")
         return False
 
+    # 解析推送审计日志路径（环境变量 > 配置 > 默认 ./push_log.jsonl；空路径=禁用）。
+    log_path = resolve_log_path(settings)
+
     if settings is not None:
         if not getattr(settings, "enable", True):
             logger.info("[alert] postprocess.alert.enable=false，跳过告警推送")
+            log_skip(log_path, "alert.enable=false", changes=total)
             return False
         qq_url = (getattr(settings, "qq_bot_alert_url", "") or "").strip()
         qq_token = (getattr(settings, "qq_bot_alert_token", "") or "").strip()
@@ -257,12 +270,13 @@ def run(old_path: str, new_path: str, settings: object | None = None) -> bool:
 
     if not qq_url and not wecom:
         logger.info("[alert] 未配置 QQ_BOT_ALERT_URL / WECOM_WEBHOOK_URL，跳过告警推送")
+        log_skip(log_path, "未配置推送渠道(QQ/企微)", changes=total)
         return False
 
     if qq_url:
         text = format_plain(changes)
         logger.info(f"[alert] 检测到 {total} 条状态变化，推送 QQ（blog-bot）\n{text}")
-        if push_qq(qq_url, qq_token, text):
+        if push_qq(qq_url, qq_token, text, log_path=log_path):
             return True
         logger.warning("[alert] QQ 推送未成功，降级企业微信")
 
@@ -271,4 +285,4 @@ def run(old_path: str, new_path: str, settings: object | None = None) -> bool:
         return False
     markdown = format_markdown(changes)
     logger.info(f"[alert] 推送企业微信\n{markdown}")
-    return push_wecom(wecom, markdown)
+    return push_wecom(wecom, markdown, log_path=log_path)
