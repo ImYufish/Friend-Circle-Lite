@@ -290,7 +290,8 @@
       ],
       "weight": 5,
       "enabled": true,
-      "verified": false
+      "verified": false,
+      "issue_id": 1
     },
     {
       "name": "张萌萌",

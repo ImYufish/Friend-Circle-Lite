@@ -7,6 +7,8 @@ CNB 巡检异常回评 —— 对应 GitHub 版 friend_circle_lite.yml 的「友
   - 扫描 link.json，找出 可达性失败 或 反链丢失(且非 verified) 的友链；
   - 这些友链若登记过 issue_id 且尚未带 待更新 标签 → 去对应议题回评原因并打标签；
   - 已带 待更新 但本轮恢复正常 → 移除标签并回评恢复通知。
+  - 宽限期：异常连续持续未满 issue_report_min_days 天不回评（默认 10），
+    过滤瞬时检测抖动（检测失败但站点实际可访问）导致的误报，避免骚扰申请者。
 
 平台无关设计：只要环境有 CNB_TOKEN / CNB_REPO_SLUG 就能跑；
 缺令牌或接口异常只告警不中断巡检主流程。
@@ -59,6 +61,58 @@ def unwrap_list(data) -> list:
 
 def norm_link(u: str) -> str:
     return (u or "").strip().lower().replace("https://", "").replace("http://", "").rstrip("/")
+
+
+def _as_int(v) -> int | None:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def anomaly_days(entry: dict, reason: str) -> int | None:
+    """该异常已持续的连续天数：不可达取 unreachable_days，反链缺失取 backlink_lost_days。"""
+    if "不可访问" in reason or "访问错误" in reason or "地域拦截" in reason:
+        return _as_int(entry.get("unreachable_days"))
+    return _as_int(entry.get("backlink_lost_days"))
+
+
+def should_report(entry: dict | None, reason: str, min_days: int) -> tuple[bool, str]:
+    """是否应在本轮回评该异常 Issue。
+
+    返回 (是否回评, 跳过原因)。min_days<=0 表示不启用宽限期（沿用旧行为，首日即回评）。
+    缺天数元数据时保守回评，避免漏报真实故障。
+    """
+    if min_days <= 0:
+        return True, ""
+    days = anomaly_days(entry, reason) if entry else None
+    if days is None:
+        return True, ""
+    if days < min_days:
+        return False, f"异常仅持续 {days} 天（< 阈值 {min_days}），跳过回评"
+    return True, ""
+
+
+def load_min_days() -> int:
+    """回评宽限期（天）：异常连续持续满该天数才回评申请者 Issue，过滤瞬时检测抖动误报。
+
+    优先级：环境变量 CNB_ISSUE_REPORT_MIN_DAYS > conf.yaml postprocess.alert.issue_report_min_days
+            > 默认 10（对齐 FCL 第一个续命档）。
+    """
+    env = os.getenv("CNB_ISSUE_REPORT_MIN_DAYS", "").strip()
+    if env:
+        v = _as_int(env)
+        if v is not None:
+            return v
+    try:
+        with open("conf.yaml", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        v = _as_int((cfg.get("postprocess") or {}).get("alert", {}).get("issue_report_min_days"))
+        if v is not None:
+            return v
+    except Exception:
+        pass
+    return 10
 
 
 def load_friends_source() -> str:
@@ -151,12 +205,23 @@ def main() -> int:
         ]
 
     to_notify, recovered_candidates = compute_changes(link_data, friends_index)
+    min_days = load_min_days()
+    # issue_id -> 本轮 link.json 条目，用于取连续异常天数
+    link_by_iid = {}
+    for entry in link_data:
+        info = friends_index.get(norm_link(entry.get("link")))
+        if info and info.get("issue_id"):
+            link_by_iid[info["issue_id"]] = entry
     notified = 0
 
     for iid, name, reason in to_notify:
         try:
             if LABEL_RETRY in labels_of(iid):
                 log.info(f"Issue #{iid}（{name}）已带 待更新，跳过重复评论")
+                continue
+            ok, skip = should_report(link_by_iid.get(iid), reason, min_days)
+            if not ok:
+                log.info(f"Issue #{iid}（{name}）{skip}")
                 continue
             api("POST", f"/{SLUG}/-/issues/{iid}/comments", json={
                 "body": f"⚠️ **定时巡检异常**：{reason}。\n\n请检查该友链，修复后在本 Issue 下回复任意内容即可重新验证（Issue 保持开放）。"

@@ -113,12 +113,33 @@ jobs:
 
     - name: 友链 Issue 巡检回评
       # 巡检异常回评对应申请 Issue（按 friends.json 中的 issue_id）；verified 站点不因反链误报
+      # 宽限期：异常连续未满 issue_report_min_days（conf.yaml，默认 10）天不回评，过滤瞬时检测抖动误报
       uses: actions/github-script@v7
+      env:
+        ISSUE_REPORT_MIN_DAYS: ${{ vars.ISSUE_REPORT_MIN_DAYS }}
       with:
         script: |
           const fs = require('fs');
           const { owner, repo } = context.repo;
           const norm = (u) => (u || '').trim().toLowerCase().replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+
+          // 回评宽限期（天）：env ISSUE_REPORT_MIN_DAYS > conf.yaml issue_report_min_days > 默认 10
+          let minDays = 10;
+          try {
+            const confText = fs.readFileSync('./conf.yaml', 'utf8');
+            const cidx = confText.indexOf('issue_report_min_days:');
+            if (cidx >= 0) {
+              const cafter = confText.substring(cidx + 'issue_report_min_days:'.length);
+              const cdigits = cafter.replace(/[^0-9]/g, '').substring(0, 4);
+              const cparsed = parseInt(cdigits, 10);
+              if (!isNaN(cparsed)) minDays = cparsed;
+            }
+          } catch (e) { /* 用默认 10 */ }
+          if (process.env.ISSUE_REPORT_MIN_DAYS) {
+            const v = parseInt(process.env.ISSUE_REPORT_MIN_DAYS, 10);
+            if (!isNaN(v)) minDays = v;
+          }
+          console.log('友链 Issue 回评宽限期：' + minDays + ' 天');
 
           let data;
           try {
@@ -155,6 +176,15 @@ jobs:
             const iss = await github.rest.issues.get({ owner, repo, issue_number: id });
             const labels = (iss.data.labels || []).map((l) => l.name);
             if (labels.includes('待更新')) { console.log('Issue #' + id + ' 已带 待更新，跳过重复评论'); continue; }
+
+            // 宽限期：异常连续天数未满阈值不回评（过滤瞬时检测抖动误报）
+            if (minDays > 0) {
+              const days = (s.reachable === false) ? s.unreachable_days : s.backlink_lost_days;
+              if (days != null && days < minDays) {
+                console.log('Issue #' + id + ' 异常仅持续 ' + days + ' 天（< 阈值 ' + minDays + '），跳过回评');
+                continue;
+              }
+            }
 
             let reason = '站点不可访问';
             if (s.geo_status === 'geo_blocked') reason = '疑似地域拦截（geo_blocked）' + (s.geo_hint ? '：' + s.geo_hint : '');

@@ -147,6 +147,11 @@ postprocess:
     # 推送审计日志：每次 QQ/企微推送（成功失败都）写入该 JSONL 文件，用于排查漏推。
     # 环境变量 PUSH_LOG_PATH 可覆盖；置空则不写盘。默认 ./push_log.jsonl。
     push_log_path: "push_log.jsonl"
+    # 友链 Issue 巡检回评宽限期（天）：异常连续持续未满该天数不回评申请者 Issue，
+    # 用于过滤瞬时检测抖动（检测失败但站点实际可访问）导致的误报。连续不可达取
+    # unreachable_days，反链缺失取 backlink_lost_days。0=关闭宽限（首日即回评，旧行为）。
+    # 环境变量 CNB_ISSUE_REPORT_MIN_DAYS 可覆盖。默认 10（对齐 FCL 第一个续命档）。
+    issue_report_min_days: 30
 
 # 友链字段重命名（读取外部端点 + 发布 friends.json 共用一份映射）
 # 已统一到上方 spider_settings.friends_input，此处不再单独配置 friends_output。
