@@ -288,12 +288,25 @@ jobs:
           name: 'link_json'
           path: '.'
 
+      - name: 拉取上一轮 link.json（用于检测被删友链）
+        # 提前 clone page 分支，把上一轮截图后的 link.json 提供给 runner 做 diff，
+        # 从而自动清理已从友链列表移除的站点在图床上的孤儿截图。
+        # page 分支不存在（首次运行）时静默跳过，不阻断后续步骤。
+        continue-on-error: true
+        env:
+          PAGE_BRANCH: page
+        run: |
+          git config --global user.name 'github-actions[bot]'
+          git config --global user.email 'github-actions[bot]@users.noreply.github.com'
+          git clone --depth 1 --branch "$PAGE_BRANCH" "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" publish_tmp || echo "::warning::page 分支尚不存在，跳过上一轮对比"
+
       - name: 执行截图（增量）
         # 上传目录/并发数/刷新周期等开关在 conf.yaml 的 postprocess.siteshot；此处仅注入密钥与手动指定目标
         env:
           IMG_UPLOAD_URL: ${{ secrets.IMG_UPLOAD_URL }}
           IMG_AUTH_CODE: ${{ secrets.IMG_AUTH_CODE }}
           LINK_CURRENT: ./link.json
+          PREV_LINK: ./publish_tmp/link.json
           TARGET_LINK: ${{ github.event.inputs.target_link }}
           FORCE_SHOT: ${{ github.event.inputs.force }}
           FCL_CONFIG_OVERRIDES: ${{ vars.FCL_CONFIG_OVERRIDES }}
@@ -307,7 +320,9 @@ jobs:
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git clone --depth 1 --branch "$PAGE_BRANCH" "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" publish_tmp
+          if [ ! -d publish_tmp ]; then
+            git clone --depth 1 --branch "$PAGE_BRANCH" "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" publish_tmp
+          fi
           cp ./link.json publish_tmp/link.json
           cd publish_tmp
           git add link.json

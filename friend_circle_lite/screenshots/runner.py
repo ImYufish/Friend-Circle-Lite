@@ -24,7 +24,13 @@ from datetime import datetime
 from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
-from friend_circle_lite.screenshots.screenshot import take_screenshot, resolve_driver_path, _build_thumio_url
+from friend_circle_lite.screenshots.screenshot import (
+    take_screenshot,
+    resolve_driver_path,
+    _build_thumio_url,
+    delete_from_imagebed,
+    _safe_filename,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -43,12 +49,58 @@ TARGET_LINK_LIST: list[str] = [p.strip() for p in _RAW_TARGET.replace(",", "|").
 # 手动触发「重新截图」时用；常规定时/增量运行留空即可。
 FORCE_SHOT = os.getenv("FORCE_SHOT", "").strip().lower() in ("1", "true", "yes", "y", "强制", "on")
 
+# 上一轮 link.json 路径（由 CI 在截图前 clone page 分支提供）。
+# 用于对比检出「本轮已从友链列表移除」的友链，进而清理图床上的孤儿截图。
+PREV_LINK = os.getenv("PREV_LINK", "").strip()
+
 
 def host_from_url(url: str) -> str:
     try:
         return urlparse(url).hostname or "unknown"
     except Exception:
         return "unknown"
+
+
+def _cleanup_removed(items: list[dict]) -> None:
+    """删友链时清理图床孤儿截图。
+
+    基准：PREV_LINK 指向的上一轮 link.json。对比两轮 link_data 的 host 集合，
+    本轮消失的 host 视为「被移除友链」，对其图床文件（friends/{host}.png）调用删除。
+    未配置 PREV_LINK 或文件缺失/损坏时静默跳过，不影响正常截图。
+    """
+    if not PREV_LINK or not os.path.exists(PREV_LINK):
+        return
+    try:
+        with open(PREV_LINK, encoding="utf-8") as f:
+            prev = json.load(f)
+        prev_hosts = [
+            host_from_url(it.get("link", ""))
+            for it in (prev.get("link_data") or [])
+            if it.get("link")
+        ]
+    except Exception as e:
+        logger.warning(f"[cleanup] 读取上一轮 link.json 失败，跳过孤儿图清理：{e}")
+        return
+
+    current_lower = {
+        host_from_url(it.get("link", "")).lower()
+        for it in items
+        if it.get("link")
+    }
+    # 用上一轮原始 host 作为删除目标（图床文件名即 _safe_filename(host)），
+    # 比较时忽略大小写，避免友链 URL 大小写差异导致漏删/误删。
+    removed = [
+        h for h in prev_hosts
+        if h and h != "unknown" and h.lower() not in current_lower
+    ]
+    if not removed:
+        return
+    logger.info(
+        f"🔍 检出 {len(removed)} 个被移除友链，清理图床旧截图："
+        + ", ".join(sorted(removed))
+    )
+    for host in sorted(removed):
+        delete_from_imagebed(_safe_filename(host))
 
 
 def _is_usable(shot: str | None) -> bool:
@@ -140,6 +192,10 @@ def main() -> None:
     if not items:
         logger.warning("link_data 为空，跳过截图")
         return
+
+    # 删友链自动清理：对比上一轮 link.json，删除已从列表移除的友链在图床的旧截图。
+    # 放在截图开关判断之前——无论是否启用截图，移除友链都应回收图床孤儿图。
+    _cleanup_removed(items)
 
     targets = _select_targets(items, refresh_days, TARGET_LINK_LIST, FORCE_SHOT)
     if FORCE_SHOT:
