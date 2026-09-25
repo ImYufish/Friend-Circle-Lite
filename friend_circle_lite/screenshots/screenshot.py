@@ -179,6 +179,8 @@ def resolve_driver_path() -> str:
     适用于无法访问 Google 源的国内 CI 环境。
     """
     import os
+    import re
+    import subprocess
 
     env_driver = os.getenv("CHROMEDRIVER_PATH", "").strip()
     if env_driver:
@@ -187,6 +189,23 @@ def resolve_driver_path() -> str:
     from selenium.webdriver.chrome.service import Service
     from webdriver_manager.chrome import ChromeDriverManager
 
+    # webdriver_manager 默认按系统 PATH 里的 chrome 解析 chromedriver 版本，但本仓库
+    # 通过 CHROME_BIN 指定了 setup-chrome 安装的 chrome（与系统旧版可能不同）。版本
+    # 不匹配时浏览器与 driver 的 CDP 协议不一致，会触发 renderer 超时。故显式按
+    # CHROME_BIN 的真实版本锁定 driver_version。
+    bin_path = os.getenv("CHROME_BIN", "/usr/bin/google-chrome").strip()
+    ver = None
+    try:
+        out = subprocess.check_output(
+            [bin_path, "--version"], stderr=subprocess.STDOUT, timeout=15
+        ).decode(errors="ignore")
+        m = re.search(r"(\d+\.\d+\.\d+\.\d+)", out)
+        if m:
+            ver = m.group(1)
+    except Exception:
+        ver = None
+    if ver:
+        return ChromeDriverManager(driver_version=ver).install()
     return ChromeDriverManager().install()
 
 
@@ -213,14 +232,15 @@ def _take_screenshot_with_selenium(
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    # WebGL 软件渲染（Spline/Live2D 等 WebGL 内容在 headless 下默认不渲染，产生黑块）
-    # 新版 Chrome 需要 --enable-unsafe-swiftshader 才允许软件 WebGL
-    options.add_argument("--use-gl=angle")
-    options.add_argument("--use-angle=swiftshader")
-    options.add_argument("--enable-unsafe-swiftshader")
-    options.add_argument("--ignore-gpu-blocklist")
+    # 关闭 GPU 进程：新版本 GitHub runner 镜像（ubuntu-24.04 20260920+）下，GPU /
+    # SwiftShader 进程极易崩溃并拖垮 renderer，表现为
+    # "Timed out receiving message from renderer"。普通博客首页截图不需要 GPU/WebGL，
+    # 关掉最稳；--no-zygote 避免 renderer 经 zygote fork 失败。
+    # 取舍：Spline/Live2D 等 WebGL 内容会渲染成黑块（如需可改回 swiftshader 方案，
+    # 但那是当前新建镜像崩溃的根因之一）。
+    options.add_argument("--disable-gpu")
+    options.add_argument("--no-zygote")
     options.add_argument("--disable-extensions")
-    options.add_argument("--disable-software-rasterizer")
     options.add_argument(f"--window-size={WINDOW_WIDTH},{WINDOW_HEIGHT}")
     options.add_argument("--hide-scrollbars")
     options.add_argument(
