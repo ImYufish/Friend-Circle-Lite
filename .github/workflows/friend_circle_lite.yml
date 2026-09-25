@@ -257,9 +257,24 @@ jobs:
         run: pip install requests selenium webdriver-manager pyyaml==6.0.1
 
       - name: 安装 Chrome
+        id: setup-chrome
         uses: browser-actions/setup-chrome@v2
         with:
           chrome-version: stable
+
+      - name: 导出 Chrome 路径给 Selenium
+        # 关键修复：runner 镜像自带的 /usr/bin/google-chrome 是旧版（153），
+        # 在 2026-09 的 ubuntu-24.04 镜像上 renderer 进程起不来，截图会 30s 超时降级 thum.io。
+        # setup-chrome 装的是新版（154），必须显式指给 Selenium 用（代码默认走系统旧版）。
+        # webdriver-manager 会读 CHROME_BIN 自动匹配对应版本的 chromedriver，无需另设。
+        run: |
+          BIN="${{ steps.setup-chrome.outputs.chrome-path }}"
+          if [ -z "$BIN" ] || [ ! -x "$BIN" ]; then
+            BIN="${RUNNER_TOOL_CACHE:-/opt/hostedtoolcache}/setup-chrome/chrome/stable/x64/chrome"
+          fi
+          echo "CHROME_BIN=$BIN" >> "$GITHUB_ENV"
+          echo "Selenium 将使用 Chrome: $BIN"
+          "$BIN" --version
 
       - name: 安装中文字体
         # 保证截图里中文字形正常渲染
