@@ -28,7 +28,7 @@ if not logger.handlers:
 # 视窗大小（与 thun888 一致，桌面端展示效果佳）
 WINDOW_WIDTH = 1280
 WINDOW_HEIGHT = 800
-PAGE_LOAD_WAIT = 3  # 页面渲染等待时间（秒）
+PAGE_LOAD_WAIT = 5  # 页面渲染等待时间（秒），eager 策略下给 JS 初始渲染留足时间
 
 # 图床配置：惰性读取（运行时 env 为准），便于 conf.yaml 在进程启动后注入默认值。
 # 优先级：显式环境变量 > conf.yaml postprocess.siteshot > 内置默认。
@@ -241,6 +241,9 @@ def _take_screenshot_with_selenium(
     options.add_argument("--disable-gpu")
     options.add_argument("--no-zygote")
     options.add_argument("--disable-extensions")
+    # 不等全部子资源（图片/统计/评论脚本），只等 DOMContentLoaded。否则第三方资源
+    # 在 CI 出口下加载慢会拖死 load 事件，导致 driver.get() 卡满 30s 超时（renderer timeout）。
+    options.page_load_strategy = "eager"
     options.add_argument(f"--window-size={WINDOW_WIDTH},{WINDOW_HEIGHT}")
     options.add_argument("--hide-scrollbars")
     options.add_argument(
@@ -256,7 +259,16 @@ def _take_screenshot_with_selenium(
         else:
             service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
-        driver.set_page_load_timeout(30)
+        driver.set_page_load_timeout(45)
+        driver.set_script_timeout(45)
+        # 模拟"减少动效"偏好，抑制第三方站点的无限动画/视差，降低渲染负担避免卡死
+        try:
+            driver.execute_cdp_command(
+                "Emulation.setEmulatedMedia",
+                {"features": [{"name": "prefers-reduced-motion", "value": "reduce"}]},
+            )
+        except Exception:
+            pass
         logger.info(f"[selenium] 访问 {url} ...")
         driver.get(url)
         time.sleep(PAGE_LOAD_WAIT)
