@@ -1,6 +1,20 @@
 {
   "friends": [
     {
+      "name": "临渊羡鱼",
+      "link": "https://x1anyu.cn",
+      "avatar": "https://x1anyu.cn/assets/images/avatar.png",
+      "linkpage": "https://x1anyu.cn/friends/",
+      "verified": true,
+      "rss": "",
+      "desc": "久有羡鱼意，不甘空望川. 躬身耕岁月，步步赴清澜",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 10
+    },
+    {
       "name": "夏夜流萤",
       "link": "https://blog.cuteleaf.cn",
       "avatar": "https://weavatar.com/avatar/d252655d40d6874417a720bad0a6c5f77f8f6a1fd2f882f8f338402dc37e4190?s=640",
@@ -13,20 +27,6 @@
       ],
       "enabled": true,
       "weight": 9
-    },
-    {
-      "name": "super-mortal",
-      "link": "https://supermortal.cn",
-      "avatar": "https://q1.qlogo.cn/g?b=qq&nk=2169702639&s=640",
-      "linkpage": "https://supermortal.cn/links",
-      "verified": true,
-      "rss": "https://supermortal.cn/rss.xml",
-      "desc": "super-mortal 技术博客：记录一个凡人程序员在 AI Agent、全栈开发与 DevOps 中的踩坑实录与开源实践，欢迎一起交流进步.",
-      "tags": [
-        "Blog"
-      ],
-      "enabled": true,
-      "weight": 5
     },
     {
       "name": "fqzlr",
@@ -306,6 +306,20 @@
       "weight": 5,
       "enabled": true,
       "verified": false
+    },
+    {
+      "name": "super-mortal",
+      "link": "https://supermortal.cn",
+      "avatar": "https://q1.qlogo.cn/g?b=qq&nk=2169702639&s=640",
+      "linkpage": "https://supermortal.cn/links",
+      "verified": false,
+      "rss": "https://supermortal.cn/rss.xml",
+      "desc": "super-mortal 技术博客：记录一个凡人程序员在 AI Agent、全栈开发与 DevOps 中的踩坑实录与开源实践，欢迎一起交流进步.",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 5
     }
   ],
   "version": 1,
