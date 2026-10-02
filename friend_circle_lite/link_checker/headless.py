@@ -24,6 +24,9 @@ import re
 import threading
 from concurrent.futures import Future
 
+from friend_circle_lite import USER_AGENT
+from friend_circle_lite.utils.url import is_safe_public_url
+
 _PW_AVAILABLE = False
 _sync_playwright = None
 try:
@@ -33,11 +36,8 @@ try:
 except Exception:  # pragma: no cover - 依赖可选
     _sync_playwright = None
 
-_LINK_CHECK_UA = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36 "
-    "(Friend-Circle-Lite/2.0; +https://github.com/willow-god/Friend-Circle-Lite)"
-)
+# 复用全项目统一 UA（friend_circle_lite.USER_AGENT），避免与 link_checker/service.py 各写一份漂移。
+_LINK_CHECK_UA = USER_AGENT
 
 _state_lock = threading.Lock()
 _task_queue: "queue.Queue | None" = None
@@ -205,6 +205,10 @@ def check_or_false(linkpage_url: str, author_url: str, timeout: int = 20) -> boo
     的单线程限制。
     """
     if not _PW_AVAILABLE:
+        return False
+    # SSRF 纵深防御：友链页指向内网/保留段地址时不做无头渲染。
+    if not is_safe_public_url(linkpage_url):
+        logging.warning(f"[反链-无头] 目标非公网（内网/保留段地址），按安全策略跳过：{linkpage_url}")
         return False
     variants = _build_variants(author_url)
     if not variants or not linkpage_url:

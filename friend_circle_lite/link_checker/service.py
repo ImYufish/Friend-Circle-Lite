@@ -19,6 +19,7 @@ from urllib.parse import quote, urlparse, urlsplit, urlunsplit
 
 import requests
 
+from friend_circle_lite import USER_AGENT
 from friend_circle_lite.config.models import LinkCheckConfig, ProxySettings
 from friend_circle_lite.crawler.feed_service import FeedDiscoveryService, FeedParserService
 from friend_circle_lite.crawler.http_client import WebFetchClient
@@ -38,12 +39,7 @@ from friend_circle_lite.link_checker import headless as headless_checker
 
 
 LINK_CHECK_HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/123.0.0.0 Safari/537.36 "
-        "(Friend-Circle-Lite/2.0; +https://github.com/willow-god/Friend-Circle-Lite)"
-    ),
+    "User-Agent": USER_AGENT,
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
     "Accept-Language": "zh-CN,zh;q=0.9",
     "Connection": "keep-alive",

@@ -32,11 +32,6 @@ from friend_circle_lite.screenshots.screenshot import (
     _safe_filename,
 )
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="📸 %(asctime)s [%(levelname)s] %(message)s",
-    handlers=[logging.StreamHandler()],
-)
 logger = logging.getLogger(__name__)
 
 SHOT_TIME_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -155,6 +150,12 @@ def _select_targets(items: list[dict], refresh_days: int, target_list: list[str]
 
 
 def main() -> None:
+    # 仅在作为入口运行时配置日志，避免本模块被 import 时污染调用方的全局 logging。
+    logging.basicConfig(
+        level=logging.INFO,
+        format="📸 %(asctime)s [%(levelname)s] %(message)s",
+        handlers=[logging.StreamHandler()],
+    )
     # 开关与参数按 FCL 原生配置语义：conf.yaml 的 postprocess.siteshot 为准，
     # 显式设置的环境变量（CI Secrets / 临时覆盖）优先于 yaml 值。
     workers_default = 2

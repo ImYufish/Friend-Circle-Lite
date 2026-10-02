@@ -14,6 +14,7 @@ import requests
 
 from friend_circle_lite.config.models import ProxySettings
 from friend_circle_lite.domain.models import normalize_latency
+from friend_circle_lite.utils.url import is_safe_public_url
 
 
 @dataclass(slots=True)
@@ -45,6 +46,10 @@ class WebFetchClient:
         desc: str = "网页请求",
     ) -> FetchResult:
         """先直连请求，失败时自动尝试代理请求。"""
+        # SSRF 纵深防御：目标为内网/保留段地址时直接拒绝，不发起任何请求（含代理）。
+        if not is_safe_public_url(url):
+            logging.warning(f"[{desc}] 目标非公网（内网/保留段地址），按安全策略跳过：{url}")
+            return FetchResult(response=None, used_proxy=False)
         direct = self._get_once(url, headers=headers, timeout=timeout, desc=desc, used_proxy=False)
         if direct.success or not self.proxy_settings.proxy_url:
             return direct

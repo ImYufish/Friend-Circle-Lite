@@ -20,6 +20,20 @@ import requests
 from urllib.parse import urlparse
 from typing import Optional
 
+try:  # 包内运行时复用全项目统一 UA 与 SSRF 校验，避免各处硬编码 / 漏校验
+    from friend_circle_lite import USER_AGENT
+    from friend_circle_lite.utils.url import is_safe_public_url
+except Exception:  # pragma: no cover - 作为独立脚本直接运行（sys.path 无包根）时的兜底
+    USER_AGENT = (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/123.0.0.0 Safari/537.36 "
+        "(Friend-Circle-Lite/2.0; +https://github.com/ImYufish/Friend-Circle-Lite)"
+    )
+
+    def is_safe_public_url(url: str) -> bool:  # 独立运行无法导入校验模块，退化为放行
+        return True
+
 logger = logging.getLogger(__name__)
 if not logger.handlers:
     logger.setLevel(logging.INFO)
@@ -228,6 +242,11 @@ def _take_screenshot_with_selenium(
         logger.error(f"[selenium] 依赖未安装：{e}")
         return None
 
+    # SSRF 纵深防御：目标为内网/保留段地址时不启动浏览器。
+    if not is_safe_public_url(url):
+        logger.warning(f"[selenium] 目标非公网（内网/保留段地址），按安全策略跳过：{url}")
+        return None
+
     options = Options()
     options.add_argument("--headless=new")
     options.add_argument("--no-sandbox")
@@ -246,10 +265,7 @@ def _take_screenshot_with_selenium(
     options.page_load_strategy = "eager"
     options.add_argument(f"--window-size={WINDOW_WIDTH},{WINDOW_HEIGHT}")
     options.add_argument("--hide-scrollbars")
-    options.add_argument(
-        "--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36"
-    )
+    options.add_argument(f"--user-agent={USER_AGENT}")
     options.binary_location = os.getenv("CHROME_BIN", "/usr/bin/google-chrome")
 
     driver = None

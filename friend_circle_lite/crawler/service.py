@@ -19,7 +19,6 @@ from friend_circle_lite import HEADERS_JSON, timeout
 from friend_circle_lite.config.models import LinkCheckConfig, ProxySettings
 from friend_circle_lite.crawler.feed_service import FeedDiscoveryService, FeedParserService
 from friend_circle_lite.domain.models import Article, CacheRecord, CacheUpdate, CrawlResult, CrawlStatistics, FeedEndpoint, LinkCheckRecord, Website
-from friend_circle_lite.link_checker.service import LinkReachabilityService
 from friend_circle_lite.storage.sqlite_store import FeedCacheStore, LinkCheckStore
 
 
@@ -214,6 +213,11 @@ class FriendCircleCrawlService:
         return result, error_results, link_payload
 
     def _check_links(self, websites: list[Website], feed_records: list[CacheRecord], manual_names: set[str]) -> list[LinkCheckRecord]:
+        # 延迟导入：link_checker.service 顶层反向依赖 crawler.feed_service，在此处才导入
+        # 可打破 crawler.service ↔ link_checker.service 的循环导入（否则直接 import 任一侧
+        # 都会因目标模块 partially initialized 而失败）。
+        from friend_circle_lite.link_checker.service import LinkReachabilityService
+
         service = LinkReachabilityService(
             config=self.link_check_config,
             proxy_settings=self.proxy_settings,

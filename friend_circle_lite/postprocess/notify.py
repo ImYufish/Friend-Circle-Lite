@@ -26,7 +26,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 from datetime import datetime
 from math import ceil
 
@@ -44,10 +43,7 @@ except Exception:  # pragma: no cover - 仅在 import 异常时触发
     SUSTAINED_TIERS = (10, 30, 60)
 
 from friend_circle_lite.postprocess.push_log import log_push, log_skip, resolve_log_path
-
-
-def _norm(u: str) -> str:
-    return re.sub(r"^https?://", "", (u or "").strip().lower()).rstrip("/")
+from friend_circle_lite.utils.url import norm_link
 
 
 def _as_int(v) -> int | None:
@@ -68,6 +64,15 @@ def _elapsed_days(since: str | None) -> int | None:
     return max(1, ceil((datetime.now() - dt).total_seconds() / 86400))
 
 
+def _geo_note(item: dict) -> str:
+    """不可达时的地域诊断备注：仅当有 geo_status 时拼接，形如「（状态/提示）」。"""
+    status = item.get("geo_status")
+    if not status:
+        return ""
+    hint = item.get("geo_hint")
+    return f"（{status}/{hint}）" if hint else f"（{status}）"
+
+
 def _load_items(path: str) -> dict[str, dict]:
     """按归一化 link 建索引；文件缺失/损坏返回空表。"""
     try:
@@ -78,7 +83,7 @@ def _load_items(path: str) -> dict[str, dict]:
     except json.JSONDecodeError as exc:
         logger.warning(f"[alert] {path} 解析失败: {exc}")
         return {}
-    return {_norm(it.get("link")): it for it in (data.get("link_data") or []) if it.get("link")}
+    return {norm_link(it.get("link")): it for it in (data.get("link_data") or []) if it.get("link")}
 
 
 def diff(old_path: str, new_path: str, backlink_lost_days_threshold: int = 0) -> dict[str, list[dict]]:
@@ -105,8 +110,7 @@ def diff(old_path: str, new_path: str, backlink_lost_days_threshold: int = 0) ->
 
         was_up, now_up = bool(prev.get("reachable")), bool(cur.get("reachable"))
         if was_up and not now_up:
-            geo = f"（{cur.get('geo_status')}" + (f"/{cur['geo_hint']}" if cur.get("geo_hint") else "") + "）" if cur.get("geo_status") else ""
-            result["down"].append({"name": name, "link": cur.get("link", ""), "note": geo})
+            result["down"].append({"name": name, "link": cur.get("link", ""), "note": _geo_note(cur)})
         elif not was_up and now_up:
             result["recovered"].append({"name": name, "link": cur.get("link", ""), "note": "站点恢复可访问"})
 

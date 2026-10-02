@@ -12,23 +12,18 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from datetime import datetime
 from zoneinfo import ZoneInfo
+
+from friend_circle_lite.utils.url import norm_link
 
 logger = logging.getLogger(__name__)
 
 SHANGHAI_TZ = ZoneInfo("Asia/Shanghai")
 
 
-def _norm(u: str) -> str:
-    u = (u or "").strip().lower()
-    u = re.sub(r"^https?://", "", u)
-    return u.rstrip("/")
-
-
 def _host(u: str) -> str:
-    n = _norm(u)
+    n = norm_link(u)
     return n.split("/", 1)[0] if n else ""
 
 
@@ -41,7 +36,7 @@ def _build_index(baseline_items: list[dict]) -> dict:
             continue  # 只索引有截图的条目
         if link:
             idx["exact"].setdefault(link, e)
-        n, h = _norm(link), _host(link)
+        n, h = norm_link(link), _host(link)
         if n and n not in idx["norm"]:
             idx["norm"][n] = e
         if name and h and (name, h) not in idx["name_host"]:
@@ -54,7 +49,7 @@ def _build_index(baseline_items: list[dict]) -> dict:
 def _lookup(idx: dict, link: str, name: str) -> dict:
     if link in idx["exact"]:
         return idx["exact"][link]
-    n, h = _norm(link), _host(link)
+    n, h = norm_link(link), _host(link)
     nm = (name or "").strip().lower()
     if n and n in idx["norm"]:
         return idx["norm"][n]
