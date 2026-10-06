@@ -320,8 +320,23 @@
       "enabled": true,
       "weight": 5,
       "verified": false
+    },
+    {
+      "name": "YuJing的记忆终端",
+      "link": "https://yujingblog.top",
+      "avatar": "https://yujingblog.top/assets/home/avatar.webp",
+      "linkpage": "https://yujingblog.top/friends/",
+      "verified": false,
+      "rss": "",
+      "desc": "记一些无用的日常，和有光的时刻。",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 5,
+      "issue_id": 3
     }
   ],
   "version": 1,
-  "updatedAt": "2026-09-03"
+  "updatedAt": "2026-10-06"
 }
