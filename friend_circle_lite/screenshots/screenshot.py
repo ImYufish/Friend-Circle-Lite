@@ -34,6 +34,11 @@ except Exception:  # pragma: no cover - 作为独立脚本直接运行（sys.pat
     def is_safe_public_url(url: str) -> bool:  # 独立运行无法导入校验模块，退化为放行
         return True
 
+try:  # WebP 重编码依赖 Pillow；未安装时由转换函数回退 PNG，不阻断主流程
+    from PIL import Image
+except Exception:  # pragma: no cover - 运行环境未装 Pillow
+    Image = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
 if not logger.handlers:
     logger.setLevel(logging.INFO)
@@ -61,16 +66,51 @@ def _img_upload_folder() -> str:
     return os.getenv("IMG_UPLOAD_FOLDER", "friends")
 
 
-def _safe_filename(host: str) -> str:
-    """将域名转为安全文件名：blog.example.com -> blog.example.com.png"""
+def _safe_filename(host: str, ext: str = "png") -> str:
+    """将域名转为安全文件名：blog.example.com -> blog.example.com.{ext}"""
     # 替换不安全字符为下划线
     safe = re.sub(r"[^a-zA-Z0-9.\-]", "_", host)
-    return f"{safe}.png"
+    return f"{safe}.{ext}"
 
 
 def _build_thumio_url(url: str) -> str:
     """thum.io 兜底 URL（始终可用，无需本地资源）"""
     return f"https://image.thum.io/get/width/{WINDOW_WIDTH}/crop/{WINDOW_HEIGHT}/png/{url}"
+
+
+def _delete_stale_format(host: str, current_ext: str) -> None:
+    """上传成功后清理图床上另一扩展名的旧图。
+
+    例：本次输出 webp，则删掉历史遗留的 {host}.png；反之亦然。
+    仅用于 png↔webp 切换后回收旧格式孤儿图，绝不在上传前删除有效旧图。
+    未配置 IMG_AUTH_CODE 时无操作（delete_from_imagebed 内部已静默跳过）。
+    """
+    other = "png" if current_ext == "webp" else "webp"
+    delete_from_imagebed(_safe_filename(host, other))
+
+
+def _convert_to_webp(png_bytes: bytes, lossless: bool, quality: int) -> Optional[bytes]:
+    """把 Selenium 产出的 PNG 字节转成 WebP。
+
+    lossless=True 为无损（像素级，quality 在此模式下仅影响压缩努力，固定 100）；
+    lossless=False 为有损（质量取 quality，0-100）。
+    method=6 取最大压缩比（CI 上多花点 CPU 换体积，值得）。
+
+    Pillow 未安装或转换失败均返回 None，由调用方回退到 PNG（不阻断截图主流程）。
+    """
+    if Image is None:
+        logger.warning("[webp] 未安装 Pillow，无法转 WebP，回退 PNG")
+        return None
+    try:
+        img = Image.open(io.BytesIO(png_bytes))
+        buf = io.BytesIO()
+        # 无损模式下 quality 仅作努力档；有损模式用用户配置的质量
+        save_quality = 100 if lossless else max(0, min(100, int(quality)))
+        img.save(buf, format="WEBP", lossless=lossless, quality=save_quality, method=6)
+        return buf.getvalue()
+    except Exception as e:
+        logger.warning(f"[webp] PNG→WebP 转换失败，回退 PNG：{e}")
+        return None
 
 
 def delete_from_imagebed(filename: str) -> bool:
@@ -121,12 +161,13 @@ def delete_from_imagebed(filename: str) -> bool:
         return False
 
 
-def upload_to_imagebed(image_bytes: bytes, filename: str) -> Optional[str]:
+def upload_to_imagebed(image_bytes: bytes, filename: str, mime: str = "image/png") -> Optional[str]:
     """
     调用 cfbed.sanyue.de 兼容 API 上传图片到图床
     POST {IMG_UPLOAD_URL}?uploadFolder=friends&uploadNameType=origin
     Authorization: Bearer {IMG_AUTH_CODE}    （cfbed 新版只认 Bearer，不再支持 authCode query）
     返回 publicUrl
+    mime: 上传内容类型（png=image/png，webp=image/webp），由调用方按输出格式传入
     """
     try:
         upload_url = _img_upload_url()
@@ -144,7 +185,7 @@ def upload_to_imagebed(image_bytes: bytes, filename: str) -> Optional[str]:
         if _img_auth_code():
             headers["Authorization"] = f"Bearer {_img_auth_code()}"
 
-        files = {"file": (filename, io.BytesIO(image_bytes), "image/png")}
+        files = {"file": (filename, io.BytesIO(image_bytes), mime)}
         logger.info(f"[upload] 正在上传 {filename} 到 {upload_url} ...")
         resp = requests.post(
             upload_url,
@@ -301,37 +342,69 @@ def _take_screenshot_with_selenium(
                 pass
 
 
-def take_screenshot(url: str, host: str, driver_path: Optional[str] = None) -> str:
+def take_screenshot(
+    url: str,
+    host: str,
+    driver_path: Optional[str] = None,
+    image_format: str = "png",
+    webp_quality: int = 85,
+) -> str:
     """
     截取指定 URL 的主页截图 + 上传图床 + 失败兜底
     返回最终可用的图片 URL（永远返回字符串，绝不抛异常）
 
     流程：
     1. 启动 Chrome headless，窗口 1280x800
-    2. 访问 URL，等待 3 秒
+    2. 访问 URL，等待渲染
     3. 截图 → PNG 字节流
-    4. 上传至图床 friends 目录（{host}.png）
-    5. 失败兜底到 thum.io 在线截图 URL
+    4. 按 image_format 决定是否转 WebP（webp_lossless 无损 / webp 有损）
+    5. 上传至图床 friends 目录（{host}.png 或 {host}.webp）
+    6. 失败兜底到 thum.io 在线截图 URL（始终 PNG）
 
     driver_path: 预先解析好的 chromedriver 路径（并发场景由调用方传入）
+    image_format: png | webp_lossless | webp（见 SiteshotSettings.image_format）
+    webp_quality: 有损 WebP 质量（image_format=webp 时生效）
     """
-    filename = _safe_filename(host)
+    # 默认按 PNG 走；需要 WebP 时再转换并切换扩展名/类型
+    ext = "png"
+    mime = "image/png"
+    payload: Optional[bytes] = None
 
-    # 1. 尝试本地截图 + 上传
     try:
         png_bytes = _take_screenshot_with_selenium(url, host, driver_path)
-        if png_bytes:
-            delete_from_imagebed(filename)  # 先删旧图（容错：失败不影响上传）
-            uploaded = upload_to_imagebed(png_bytes, filename)
-            if uploaded:
-                return uploaded
-            logger.warning(f"[fallback] 上传失败，降级到 thum.io：{url}")
-        else:
+        if not png_bytes:
             logger.warning(f"[fallback] 截图失败，降级到 thum.io：{url}")
+        else:
+            if image_format in ("webp", "webp_lossless"):
+                webp = _convert_to_webp(
+                    png_bytes,
+                    lossless=(image_format == "webp_lossless"),
+                    quality=webp_quality,
+                )
+                if webp:
+                    payload = webp
+                    ext = "webp"
+                    mime = "image/webp"
+                else:
+                    # Pillow 缺失/转换失败：保持 PNG 不阻断
+                    payload = png_bytes
+            else:
+                payload = png_bytes
+
+            if payload:
+                filename = _safe_filename(host, ext)
+                uploaded = upload_to_imagebed(payload, filename, mime)
+                if uploaded:
+                    # 上传成功后再清理另一扩展名的旧图（origin 命名已覆盖同名文件，
+                    # 此处只处理 png↔webp 切换留下的旧格式孤儿图）。
+                    # 注意：绝不在上传前删除旧图，避免瞬时上传失败丢图。
+                    _delete_stale_format(host, ext)
+                    return uploaded
+                logger.warning(f"[fallback] 上传失败，降级到 thum.io：{url}")
     except Exception as e:
         logger.warning(f"[fallback] 异常，降级到 thum.io：{e}")
 
-    # 3. thum.io 最终兜底（永远可用）
+    # thum.io 最终兜底（永远可用，PNG）
     return _build_thumio_url(url)
 
 

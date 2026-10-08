@@ -39,6 +39,16 @@ def _env_flag(name: str) -> bool | None:
     return _as_bool(value)
 
 
+# 截图输出格式白名单：见 SiteshotSettings.image_format 注释
+_IMAGE_FORMATS = ("png", "webp", "webp_lossless")
+
+
+def _normalize_image_format(value: object) -> str:
+    """把配置里的 image_format 归一化到白名单；非法/缺失一律回退 png。"""
+    fmt = str(value or "png").strip().lower()
+    return fmt if fmt in _IMAGE_FORMATS else "png"
+
+
 @dataclass(slots=True)
 class MergeSettings:
     """Options for merging local crawl results with remote data sources."""
@@ -169,6 +179,13 @@ class SiteshotSettings:
     upload_url: str = ""
     # 截图有效期（天）：图龄超过该天数的站点重新截图；0=永久有效（上游默认行为）
     refresh_days: int = 0
+    # 截图输出格式（压缩方式）：
+    #   png          原样 PNG（默认，兼容旧行为，图床文件 friends/{host}.png）
+    #   webp_lossless 无损 WebP（像素级无损，体积更小，friends/{host}.webp）
+    #   webp         有损 WebP（体积最小，friends/{host}.webp；质量见 webp_quality）
+    image_format: str = "png"
+    # 有损 WebP 质量（image_format=webp 时生效），0-100，越大越好越肥；默认 85
+    webp_quality: int = 85
 
 
 @dataclass(slots=True)
@@ -322,6 +339,8 @@ class ApplicationConfig:
                     max_workers=int(siteshot_raw.get("max_workers", 2) or 2),
                     upload_url=os.getenv("IMG_UPLOAD_URL") or str(siteshot_raw.get("upload_url", "")).strip(),
                     refresh_days=int(siteshot_raw.get("refresh_days", 0) or 0),
+                    image_format=_normalize_image_format(siteshot_raw.get("image_format", "png")),
+                    webp_quality=int(siteshot_raw.get("webp_quality", 85) or 85),
                 ),
                 alert=AlertSettings(
                     enable=_as_bool(alert_raw.get("enable"), True),

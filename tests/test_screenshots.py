@@ -29,8 +29,15 @@ def test_cleanup_removed_deletes_orphan_screenshots(tmp_path, monkeypatch):
         [{"name": "keep", "link": "https://keep.example.com/"}]
     )
 
-    assert set(calls) == {"old.example.com.png", "gone.example.com.png"}
+    # 同时清理 .png 与 .webp（切换 image_format 后不留旧格式孤儿图）
+    assert set(calls) == {
+        "old.example.com.png",
+        "old.example.com.webp",
+        "gone.example.com.png",
+        "gone.example.com.webp",
+    }
     assert "keep.example.com.png" not in calls
+    assert "keep.example.com.webp" not in calls
 
 
 def test_cleanup_removed_case_insensitive(tmp_path, monkeypatch):

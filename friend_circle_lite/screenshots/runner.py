@@ -60,7 +60,8 @@ def _cleanup_removed(items: list[dict]) -> None:
     """删友链时清理图床孤儿截图。
 
     基准：PREV_LINK 指向的上一轮 link.json。对比两轮 link_data 的 host 集合，
-    本轮消失的 host 视为「被移除友链」，对其图床文件（friends/{host}.png）调用删除。
+    本轮消失的 host 视为「被移除友链」，对其图床文件调用删除。
+    同时清理 .png 与 .webp 两种扩展名，避免切换 image_format 后残留旧格式孤儿图。
     未配置 PREV_LINK 或文件缺失/损坏时静默跳过，不影响正常截图。
     """
     if not PREV_LINK or not os.path.exists(PREV_LINK):
@@ -82,7 +83,7 @@ def _cleanup_removed(items: list[dict]) -> None:
         for it in items
         if it.get("link")
     }
-    # 用上一轮原始 host 作为删除目标（图床文件名即 _safe_filename(host)），
+    # 用上一轮原始 host 作为删除目标（图床文件名即 _safe_filename(host, ext)），
     # 比较时忽略大小写，避免友链 URL 大小写差异导致漏删/误删。
     removed = [
         h for h in prev_hosts
@@ -95,7 +96,9 @@ def _cleanup_removed(items: list[dict]) -> None:
         + ", ".join(sorted(removed))
     )
     for host in sorted(removed):
-        delete_from_imagebed(_safe_filename(host))
+        # 两种格式都尝试删除：无论当前或历史配置用哪种，都不留孤儿图
+        delete_from_imagebed(_safe_filename(host, "png"))
+        delete_from_imagebed(_safe_filename(host, "webp"))
 
 
 def _is_usable(shot: str | None) -> bool:
@@ -160,6 +163,8 @@ def main() -> None:
     # 显式设置的环境变量（CI Secrets / 临时覆盖）优先于 yaml 值。
     workers_default = 2
     refresh_days = 0
+    image_format = "png"
+    webp_quality = 85
     try:
         from friend_circle_lite.utils.config import load_config
 
@@ -173,9 +178,12 @@ def main() -> None:
         if site_cfg.max_workers and site_cfg.max_workers > 0:
             workers_default = int(site_cfg.max_workers)
         refresh_days = max(0, int(site_cfg.refresh_days or 0))
+        image_format = site_cfg.image_format
+        webp_quality = max(0, min(100, int(site_cfg.webp_quality or 85)))
         logger.info(
             f"[config] 截图配置：目录={os.environ.get('IMG_UPLOAD_FOLDER', 'friends')}，并发默认 {workers_default}，"
-            f"截图刷新周期 {refresh_days if refresh_days > 0 else '无限'} 天"
+            f"截图刷新周期 {refresh_days if refresh_days > 0 else '无限'} 天，"
+            f"输出格式={image_format}"
         )
     except Exception as e:
         logger.warning(f"[config] 读取 conf.yaml 失败，使用内置默认：{e}")
@@ -222,7 +230,14 @@ def main() -> None:
     success = failed = 0
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
         future_to_item = {
-            executor.submit(take_screenshot, it["link"], host_from_url(it["link"]), driver_path): it
+            executor.submit(
+                take_screenshot,
+                it["link"],
+                host_from_url(it["link"]),
+                driver_path,
+                image_format,
+                webp_quality,
+            ): it
             for it in targets
         }
         for future in concurrent.futures.as_completed(future_to_item):
