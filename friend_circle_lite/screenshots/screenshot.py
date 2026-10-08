@@ -78,15 +78,20 @@ def _build_thumio_url(url: str) -> str:
     return f"https://image.thum.io/get/width/{WINDOW_WIDTH}/crop/{WINDOW_HEIGHT}/png/{url}"
 
 
-def _delete_stale_format(host: str, current_ext: str) -> None:
-    """上传成功后清理图床上另一扩展名的旧图。
+def _delete_old_variants(host: str, current_ext: str) -> None:
+    """上传前清理图床上可能冲突的旧文件，确保本次上传得到干净的基础文件名。
 
-    例：本次输出 webp，则删掉历史遗留的 {host}.png；反之亦然。
-    仅用于 png↔webp 切换后回收旧格式孤儿图，绝不在上传前删除有效旧图。
-    未配置 IMG_AUTH_CODE 时无操作（delete_from_imagebed 内部已静默跳过）。
+    该图床在文件名冲突时**不覆盖**、而是追加 (1)/(2) 序号（cfbed/chevereto 系常见行为），
+    若不清场直接重传会产生 x1anyu.cn(1).png 这类漂移文件名，并不断累积孤儿图。
+    故上传前先让出基础名：删除 基础名 / 另一扩展名 / 以及二者可能的 (1)~(3) 序号副本。
+    删除不存在的文件时 API 静默跳过，安全；未配置 IMG_AUTH_CODE 时整体无操作。
     """
+    safe = re.sub(r"[^a-zA-Z0-9.\-]", "_", host)
     other = "png" if current_ext == "webp" else "webp"
-    delete_from_imagebed(_safe_filename(host, other))
+    for ext in (current_ext, other):
+        delete_from_imagebed(f"{safe}.{ext}")
+        for n in range(1, 4):
+            delete_from_imagebed(f"{safe}({n}).{ext}")
 
 
 def _convert_to_webp(png_bytes: bytes, lossless: bool, quality: int) -> Optional[bytes]:
@@ -393,12 +398,12 @@ def take_screenshot(
 
             if payload:
                 filename = _safe_filename(host, ext)
+                # 上传前清场：图床重名不覆盖而是追加 (1)，不清会产出 x1anyu.cn(1).png
+                # 这类漂移名并累积孤儿图。删除不存在的文件时 API 静默跳过，安全。
+                # 代价：若随后上传失败，旧图已被删、回退 thum.io（下一轮可重试，可接受）。
+                _delete_old_variants(host, ext)
                 uploaded = upload_to_imagebed(payload, filename, mime)
                 if uploaded:
-                    # 上传成功后再清理另一扩展名的旧图（origin 命名已覆盖同名文件，
-                    # 此处只处理 png↔webp 切换留下的旧格式孤儿图）。
-                    # 注意：绝不在上传前删除旧图，避免瞬时上传失败丢图。
-                    _delete_stale_format(host, ext)
                     return uploaded
                 logger.warning(f"[fallback] 上传失败，降级到 thum.io：{url}")
     except Exception as e:
