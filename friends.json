@@ -29,6 +29,20 @@
       "weight": 9
     },
     {
+      "name": "清羽飞扬",
+      "link": "https://blog.liushen.fun/",
+      "avatar": "https://blog.liushen.fun/info/avatar.ico",
+      "linkpage": "",
+      "verified": false,
+      "rss": "https://blog.liushen.fun/atom.xml",
+      "desc": "柳影曳曳，清酒孤灯，扬笔撒墨，心境如霜",
+      "tags": [
+        "Blog"
+      ],
+      "enabled": true,
+      "weight": 6
+    },
+    {
       "name": "fqzlr",
       "link": "https://fqzlr.com/",
       "avatar": "https://q1.qlogo.cn/g?b=qq&nk=20447289&s=640",
