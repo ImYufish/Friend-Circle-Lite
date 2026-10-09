@@ -143,9 +143,9 @@ postprocess:
     #   png           原样 PNG（默认，兼容旧行为，图床文件 friends/{host}.png）
     #   webp_lossless 无损 WebP（像素级无损，体积更小，friends/{host}.webp）
     #   webp          有损 WebP（体积最小，friends/{host}.webp）
-    image_format: "webp_lossless"
+    image_format: "webp"
     # 有损 WebP 质量（image_format=webp 时生效），0-100，越大越清晰越肥；默认 85
-    webp_quality: 85
+    webp_quality: 80
   alert:
     enable: true
     qq_bot_alert_url: ""
